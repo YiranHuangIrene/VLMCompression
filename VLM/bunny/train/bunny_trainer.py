@@ -279,111 +279,10 @@ class BunnyTrainer(Trainer):
 class DistillationTrainer(BunnyTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.teacher_model = None
-
-    # def get_teacher(self, teacher_args, data_args, compute_dtype, attn_implementation):
-    #     bnb_model_from_pretrained_args = {}
-    #     if self.args.bits in [4, 8]:
-    #         from transformers import BitsAndBytesConfig
-    #         bnb_model_from_pretrained_args.update(dict(
-    #             device_map={"": self.args.device},
-    #             load_in_4bit=self.args.bits == 4,
-    #             load_in_8bit=self.args.bits == 8,
-    #             quantization_config=BitsAndBytesConfig(
-    #                 load_in_4bit=self.args.bits == 4,
-    #                 load_in_8bit=self.args.bits == 8,
-    #                 llm_int8_skip_modules=["mm_projector"],
-    #                 llm_int8_threshold=6.0,
-    #                 llm_int8_has_fp16_weight=False,
-    #                 bnb_4bit_compute_dtype=compute_dtype,
-    #                 bnb_4bit_use_double_quant=self.args.double_quant,
-    #                 bnb_4bit_quant_type=self.args.quant_type  # {'fp4', 'nf4'}
-    #             )
-    #         ))
-    #     tokenizer = transformers.AutoTokenizer.from_pretrained(
-    #         teacher_args.model_name_or_path,
-    #         padding_side="right",
-    #         use_fast=True,
-    #     )
-
-    #     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
-    #         tokenizer.pad_token = tokenizer.unk_token
-
-    #     if teacher_args.model_type == 'llama3-8b':
-    #         tokenizer.eos_token_id = 128001
-    #         tokenizer.pad_token = tokenizer.eos_token
-    #     # model = BunnyPhiForCausalLM.from_pretrained(teacher_args.model_name_or_path, low_cpu_mem_usage=True, **bnb_model_from_pretrained_args)
-    #     model = BunnyPhiForCausalLM.from_pretrained(
-    #         teacher_args.model_name_or_path,
-    #         bos_token_id=tokenizer.bos_token_id,
-    #         eos_token_id=tokenizer.eos_token_id,
-    #         **bnb_model_from_pretrained_args
-    #     )
-    #     if self.args.bf16:
-    #         model = model.to(torch.bfloat16)
-    #     # model = transformers.AutoModelForCausalLM.from_pretrained(teacher_args.model_name_or_path,trust_remote_code=True)
-
-    #     model.config.use_cache = False
-    #     model.requires_grad_(False)
-    #     model.model.requires_grad_(False)
-
-    #     if self.args.bits in [4, 8]:
-    #         model.config.torch_dtype = (
-    #             torch.float32 if self.args.fp16 else (torch.bfloat16 if self.args.bf16 else torch.float32))
-
-    #     model.get_model().initialize_vision_modules(model_args=teacher_args)
-    #     vision_tower = model.get_vision_tower()
-    #     vision_tower.to(dtype=torch.bfloat16 if self.args.bf16 else torch.float16, device=self.args.device)
-        
-    #     data_args.image_processor = vision_tower.image_processor
-
-    #     model.config.image_aspect_ratio = data_args.image_aspect_ratio
-    #     model.config.tokenizer_padding_side = self.tokenizer.padding_side
-    #     model.config.tokenizer_model_max_length = self.tokenizer.model_max_length
-
-    #     if self.args.bits in [4, 8]:
-    #         model.get_model().mm_projector.to(dtype=compute_dtype, device=self.args.device)
-
-    #     if self.args.bits in [4, 8]:
-    #         from peft.tuners.lora import LoraLayer
-    #         for name, module in model.named_modules():
-    #             if isinstance(module, LoraLayer):
-    #                 if self.args.bf16:
-    #                     module = module.to(torch.bfloat16)
-    #             if 'norm' in name:
-    #                 module = module.to(torch.float32)
-    #             if 'lm_head' in name or 'embed_tokens' in name:
-    #                 if hasattr(module, 'weight'):
-    #                     if self.args.bf16 and module.weight.dtype == torch.float32:
-    #                         module = module.to(torch.bfloat16)
-    # # model.to(device=self.accelerator.device)
-    #     # model.to(device=teacher_args.device)
-    #     model.to(device=self.args.device)
-    #     self.teacher_model = model
-    
-    def get_teacher(self, model, data_args):
-        model.config.use_cache = False
-        model.requires_grad_(False)
-        model.model.requires_grad_(False)
-        model.get_model().initialize_vision_modules(model_args=teacher_args)
-        vision_tower = model.get_vision_tower()
-        vision_tower.to(dtype=torch.bfloat16 if self.args.bf16 else torch.float16, device=self.args.device)
-
-        model.config.image_aspect_ratio = data_args.image_aspect_ratio
-        model.config.tokenizer_padding_side = self.tokenizer.padding_side
-        model.config.tokenizer_model_max_length = self.tokenizer.model_max_length
-
-        self.teacher_mdoel = model
 
     def get_distil_loss(self, labels, student_logits, teacher_logits):
-        print("student_logits: ", student_logits.shape)
-        print("teacher_logits: ", teacher_logits.shape)
         student_logits, student_logprobs = self.compute_logits_and_log_probs(student_logits, labels)
         teacher_logits, teacher_logprobs = self.compute_logits_and_log_probs(teacher_logits, labels)
-        print("student_logits: ", student_logits.shape)
-        print("student_logprobs: ", student_logprobs.shape)
-        print("teacher_logits: ", teacher_logits.shape)
-        print("teacher_logprobs: ", teacher_logprobs.shape)
         #rev_kl = self.get_rev_kl(student_logprobs, teacher_logprobs, mask=(labels != self.tokenizer.pad_token_id)).sum()
         
         rev_kl = nn.functional.kl_div(teacher_logprobs, student_logprobs, reduction='sum', log_target=True)
@@ -403,38 +302,46 @@ class DistillationTrainer(BunnyTrainer):
         else:
             labels = None
         # teacher_inputs = {k: v.to(device=self.teacher_model.device) for k, v in inputs.items()}
-        teacher_inputs = {k: v.to(device=self.args.device) for k, v in inputs.items()}
-        #outputs = model(**inputs)
+        # teacher_inputs = {k: v.to(device=self.args.device) for k, v in inputs.items()}
         outputs = {}
-        def student_forward(model, inputs):
-            outputs['student'] = model(**inputs)
-        def teacher_forward(model, inputs):
-            with torch.no_grad():
-                outputs['teacher'] = model(**inputs)
-        # Create threads
-        teacher_thread = threading.Thread(target=teacher_forward, args=(self.teacher_model, teacher_inputs))
-        # teacher_thread = threading.Thread(target=teacher_forward, args=(self.teacher_model, inputs))
-        student_thread = threading.Thread(target=student_forward, args=(model, inputs))
+        # def student_forward(model, inputs):
+        #     outputs['student'] = model(**inputs)
+        # def teacher_forward(model, inputs):
+        #     with torch.no_grad():
+        #         outputs['teacher'] = model(**inputs)
+        # # Create threads
+        # teacher_thread = threading.Thread(target=teacher_forward, args=(model.teacher_model, inputs))
+        # # teacher_thread = threading.Thread(target=teacher_forward, args=(self.teacher_model, inputs))
+        # student_thread = threading.Thread(target=student_forward, args=(model, inputs))
 
-        # Start threads
-        teacher_thread.start()
-        student_thread.start()
+        # # Start threads
+        # teacher_thread.start()
+        # student_thread.start()
 
-        # Wait for both threads to finish
-        teacher_thread.join()
-        student_thread.join()
+        # # Wait for both threads to finish
+        # teacher_thread.join()
+        # student_thread.join()
 
-        # Save past state if it exists
-        # TODO: this needs to be fixed and made cleaner later.
-        if self.args.past_index >= 0:
-            self._past = outputs['student'][self.args.past_index]
+        # # Save past state if it exists
+        # # TODO: this needs to be fixed and made cleaner later.
+        # if self.args.past_index >= 0:
+        #     self._past = outputs['student'][self.args.past_index]
+        out = model(**inputs)
+        outputs['student'] = out[0]
+        outputs['teacher'] = out[1]
 
-        rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits.to(device=outputs['student'].logits.device))
+        # rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits.to(device=outputs['student'].logits.device))
+        rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
         xe_loss = outputs['student']["loss"]
-
-        # loss = self.args.dist_alpha * rev_kl_loss + (1 - self.args.dist_alpha) * xe_loss
-        loss = self.args.dist_alpha * (1 - math.exp(-rev_kl_loss)) + (1 - self.args.dist_alpha) * xe_loss
-
+        if self.args.dist_strategy == "vanilla":
+            loss = self.args.dist_alpha * rev_kl_loss + (1 - self.args.dist_alpha) * xe_loss
+        elif self.args.dist_strategy == "non_lin_norm":
+            loss = self.args.dist_alpha * (1 - math.exp(-rev_kl_loss)) + (1 - self.args.dist_alpha) * xe_loss
+        elif self.args.dist_strategy == "lin_norm":
+            loss = self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
+        elif self.args.dist_strategy == "l2":
+            pass    
+        
         return (loss, outputs) if return_outputs else loss
 
     @staticmethod

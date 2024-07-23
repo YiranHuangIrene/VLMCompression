@@ -15,7 +15,7 @@ import transformers
 from VLM.bunny.train.bunny_trainer import BunnyTrainer, DistillationTrainer
 from VLM.bunny import conversation as conversation_lib
 from VLM.bunny.model import *
-from VLM.bunny.model.builder import load_pruned_bunny_model
+from VLM.bunny.model.builder import load_pruned_bunny_model, load_distillation_model
 from VLM.bunny.util.data_utils import make_supervised_data_module, DataArguments
 from transformers.trainer_utils import get_last_checkpoint
 import wandb
@@ -83,6 +83,8 @@ class TrainingArguments(transformers.TrainingArguments):
     teacher_pretrain_mm_mlp_adapter: Optional[str] = field(default=None)
     dist_temperature: float = field(default=2.0)
     dist_alpha: float = field(default=1)
+    dist_strategy: str = field(default="vanilla")
+    distill_norm: bool = field(default=1)
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -216,10 +218,9 @@ def train(attn_implementation="flash_attention_2"):
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = training_args.local_rank
-    world_size = training_args.world_size
     # initialize wandb and set multi-process group
     if_lora = "lora" if training_args.lora_enable else "full"
-    distill_param = f"distill_{training_args.dist_alpha}" 
+    distill_param = f"distill_{training_args.dist_strategy}_{training_args.dist_alpha}" 
     if training_args.wandb_group is None:
         if training_args.distill:
             training_args.wandb_group = f'{model_args.pruned_model_path.split("/")[-2]}_{if_lora}_{distill_param}'  
@@ -259,131 +260,130 @@ def train(attn_implementation="flash_attention_2"):
 
     assert model_args.vision_tower is not None
     # Load the student model on all the GPUs except the last one on the first node, load the teacher model on the last GPU of the first node
-    if not training_args.distill or (training_args.distill and local_rank < world_size - 1):
+    if not training_args.distill:
         tokenizer, model = load_pruned_bunny_model(bunny_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, model_type=model_args.model_type, **bnb_model_from_pretrained_args)
     else:
-        teacher_tokenizer, teacher_model = load_pruned_bunny_model(bunny_model_path=training_args.teacher_name_or_path, **bnb_model_from_pretrained_args)
-        teacher_model.to(f'cuda:{local_rank}')
-    
-    if not training_args.distill or (training_args.distill and local_rank < world_size - 1):
-        if tokenizer.unk_token is not None and tokenizer.pad_token is None:
+        tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, **bnb_model_from_pretrained_args)
+
+    if tokenizer.unk_token is not None and tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.unk_token
+    if model_args.model_type == 'llama3-8b':
+        tokenizer.eos_token_id = 128001
+        tokenizer.pad_token = tokenizer.eos_token
+    # load non lora trainable weights
+    if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        print("Loading non lora trainable weights...")
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        model = load_non_lora_trainable_params(model, last_checkpoint)
+    if model_args.tune_mm_mlp_adapter and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        print("Loading mm projector weights...")
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        model = load_mm_projector(model, last_checkpoint)
+        
+    model.config.use_cache = False
 
-        if model_args.model_type == 'llama3-8b':
-            tokenizer.eos_token_id = 128001
-            tokenizer.pad_token = tokenizer.eos_token
-        # load non lora trainable weights
-        if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-            print("Loading non lora trainable weights...")
-            last_checkpoint = get_last_checkpoint(training_args.output_dir)
-            model = load_non_lora_trainable_params(model, last_checkpoint)
-        if model_args.tune_mm_mlp_adapter and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-            print("Loading mm projector weights...")
-            last_checkpoint = get_last_checkpoint(training_args.output_dir)
-            model = load_mm_projector(model, last_checkpoint)
-            
-        model.config.use_cache = False
+    if model_args.freeze_backbone:
+        model.model.requires_grad_(False)
 
-        if model_args.freeze_backbone:
-            model.model.requires_grad_(False)
+    if training_args.bits in [4, 8]:
+        from peft import prepare_model_for_kbit_training
+        model.config.torch_dtype = (
+            torch.float32 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
 
-        if training_args.bits in [4, 8]:
-            from peft import prepare_model_for_kbit_training
-            model.config.torch_dtype = (
-                torch.float32 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
-            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
-
-        if training_args.gradient_checkpointing:
-            if hasattr(model, "enable_input_require_grads"):
-                model.enable_input_require_grads()
-            else:
-                def make_inputs_require_grad(module, input, output):
-                    output.requires_grad_(True)
-
-                model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-        if training_args.lora_enable:
-            from peft import LoraConfig, get_peft_model
-            lora_config = LoraConfig(
-                r=training_args.lora_r,
-                lora_alpha=training_args.lora_alpha,
-                target_modules=find_all_linear_names(model),
-                lora_dropout=training_args.lora_dropout,
-                bias=training_args.lora_bias,
-                task_type="CAUSAL_LM",
-            )
-            if training_args.bits == 16:
-                if training_args.bf16:
-                    model.to(torch.bfloat16)
-                if training_args.fp16:
-                    model.to(torch.float16)
-            rank0_print("Adding LoRA adapters...")
-            model = get_peft_model(model, lora_config)
-
-        if model_args.version in conversation_lib.conv_templates:
-            conversation_lib.default_conversation = conversation_lib.conv_templates[model_args.version]
+    if training_args.gradient_checkpointing:
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
         else:
-            conversation_lib.default_conversation = conversation_lib.conv_templates["default"]
+            def make_inputs_require_grad(module, input, output):
+                output.requires_grad_(True)
 
-        model.get_model().initialize_vision_modules(model_args=model_args)
+            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
-        vision_tower = model.get_vision_tower()
-        vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
+    if training_args.lora_enable:
+        from peft import LoraConfig, get_peft_model
+        lora_config = LoraConfig(
+            r=training_args.lora_r,
+            lora_alpha=training_args.lora_alpha,
+            target_modules=find_all_linear_names(model),
+            lora_dropout=training_args.lora_dropout,
+            bias=training_args.lora_bias,
+            task_type="CAUSAL_LM",
+        )
+        if training_args.bits == 16:
+            if training_args.bf16:
+                model.to(torch.bfloat16)
+            if training_args.fp16:
+                model.to(torch.float16)
+        rank0_print("Adding LoRA adapters...")
+        model = get_peft_model(model, lora_config)
 
-        data_args.image_processor = vision_tower.image_processor
+    if model_args.version in conversation_lib.conv_templates:
+        conversation_lib.default_conversation = conversation_lib.conv_templates[model_args.version]
+    else:
+        conversation_lib.default_conversation = conversation_lib.conv_templates["default"]
 
-        model.config.image_aspect_ratio = data_args.image_aspect_ratio
-        model.config.tokenizer_padding_side = tokenizer.padding_side
-        model.config.tokenizer_model_max_length = tokenizer.model_max_length
+    model.get_model().initialize_vision_modules(model_args=model_args)
 
-        model.config.tune_mm_mlp_adapter = training_args.tune_mm_mlp_adapter = model_args.tune_mm_mlp_adapter
-        if model_args.tune_mm_mlp_adapter:
-            model.requires_grad_(False)
-            for p in model.get_model().mm_projector.parameters():
-                p.requires_grad = True
+    vision_tower = model.get_vision_tower()
+    vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
 
-        model.config.freeze_mm_mlp_adapter = training_args.freeze_mm_mlp_adapter
-        if training_args.freeze_mm_mlp_adapter:
-            for p in model.get_model().mm_projector.parameters():
-                p.requires_grad = False
+    data_args.image_processor = vision_tower.image_processor
 
-        if training_args.bits in [4, 8]:
-            model.get_model().mm_projector.to(dtype=compute_dtype, device=training_args.device)
+    model.config.image_aspect_ratio = data_args.image_aspect_ratio
+    model.config.tokenizer_padding_side = tokenizer.padding_side
+    model.config.tokenizer_model_max_length = tokenizer.model_max_length
 
-        model.config.mm_projector_lr = training_args.mm_projector_lr
+    model.config.tune_mm_mlp_adapter = training_args.tune_mm_mlp_adapter = model_args.tune_mm_mlp_adapter
+    if model_args.tune_mm_mlp_adapter:
+        model.requires_grad_(False)
+        for p in model.get_model().mm_projector.parameters():
+            p.requires_grad = True
 
-        model.config.use_s2 = model_args.use_s2
+    model.config.freeze_mm_mlp_adapter = training_args.freeze_mm_mlp_adapter
+    if training_args.freeze_mm_mlp_adapter:
+        for p in model.get_model().mm_projector.parameters():
+            p.requires_grad = False
 
-        model.config.unfreeze_vision_tower = training_args.unfreeze_vision_tower = model_args.unfreeze_vision_tower
-        if training_args.unfreeze_vision_tower:
-            for p in model.get_model().vision_tower.parameters():
-                p.requires_grad = True
+    if training_args.bits in [4, 8]:
+        model.get_model().mm_projector.to(dtype=compute_dtype, device=training_args.device)
 
-        if training_args.bits in [4, 8]:
-            from peft.tuners.lora import LoraLayer
-            for name, module in model.named_modules():
-                if isinstance(module, LoraLayer):
-                    if training_args.bf16:
-                        module = module.to(torch.bfloat16)
-                if 'norm' in name:
-                    module = module.to(torch.float32)
-                if 'lm_head' in name or 'embed_tokens' in name:
-                    if hasattr(module, 'weight'):
-                        if training_args.bf16 and module.weight.dtype == torch.float32:
-                            module = module.to(torch.bfloat16)
+    model.config.mm_projector_lr = training_args.mm_projector_lr
 
+    model.config.use_s2 = model_args.use_s2
+
+    model.config.unfreeze_vision_tower = training_args.unfreeze_vision_tower = model_args.unfreeze_vision_tower
+    if training_args.unfreeze_vision_tower:
+        for p in model.get_model().vision_tower.parameters():
+            p.requires_grad = True
+
+    if training_args.bits in [4, 8]:
+        from peft.tuners.lora import LoraLayer
+        for name, module in model.named_modules():
+            if isinstance(module, LoraLayer):
+                if training_args.bf16:
+                    module = module.to(torch.bfloat16)
+            if 'norm' in name:
+                module = module.to(torch.float32)
+            if 'lm_head' in name or 'embed_tokens' in name:
+                if hasattr(module, 'weight'):
+                    if training_args.bf16 and module.weight.dtype == torch.float32:
+                        module = module.to(torch.bfloat16)  
     data_module = make_supervised_data_module(tokenizer=tokenizer,
-                                              data_args=data_args)
+                                            data_args=data_args)
     if training_args.distill:
+        model.get_teacher(teacher_model)
+        teacher_args = copy.deepcopy(model_args)
+        model.teacher_model.get_model().initialize_vision_modules(model_args=teacher_args)
+        teacher_vision_tower = model.teacher_model.get_vision_tower()
+        teacher_vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
+        model.teacher_model.config.image_aspect_ratio = data_args.image_aspect_ratio
+        model.teacher_model.config.tokenizer_padding_side = tokenizer.padding_side
+        model.teacher_model.config.tokenizer_model_max_length = tokenizer.model_max_length
         trainer = DistillationTrainer(model=model,
                                         tokenizer=tokenizer,
                                         args=training_args,
                                         **data_module)
-        teacher_args = copy.deepcopy(model_args)
-        # teacher_args.model_name_or_path = training_args.teacher_name_or_path
-        # teacher_args.pretrain_mm_mlp_adapter = training_args.teacher_pretrain_mm_mlp_adapter
-        # teacher_args.device = f'cuda:{training_args._n_gpu}'
-        trainer.get_teacher(teacher_model, data_args)
     else:
         trainer = BunnyTrainer(model=model,
                                 tokenizer=tokenizer,

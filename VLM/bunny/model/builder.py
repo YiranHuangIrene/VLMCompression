@@ -1,21 +1,22 @@
+from bunny.model import *
+from VLM.bunny.model.language_model.bunny_phi import BunnyDistillationModel
 import os
 import sys
 sys.path.append("{}/{}/VLMCompression/LLM-Pruner".format(os.getenv("PROJECT_taco_vlm"), os.getenv("USER")))
 import warnings
 import torch
+from copy import deepcopy
 
 from transformers import AutoTokenizer, AutoConfig, BitsAndBytesConfig, logging
 
 logging.set_verbosity_error()
 warnings.filterwarnings('ignore')
 
-from bunny.model import *
-
-def load_pruned_bunny_model(bunny_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
     model_type = "phi-2"
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'phi-3':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
@@ -32,8 +33,10 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path, mm=None, lora=N
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
     if pruned_model_path:
+        print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
-        model.model.layers = pruned_model['model'].model.layers
+        model.model.layers = deepcopy(pruned_model['model'].model.layers)
+        del pruned_model
     model.resize_token_embeddings(len(tokenizer))
     if mm:
         mm_path = os.path.join(mm, "mm_projector.bin")
@@ -63,11 +66,11 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path, mm=None, lora=N
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
         
     model.half()
-    model.to(device)
+    # model.to(device)
     return tokenizer, model
 
 
-def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
     model_type = "phi-2"
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
@@ -136,6 +139,15 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path, mm=None, lo
     print(f"Number of parameters in the model: {model.num_parameters()}")
     return tokenizer, model, image_processor, context_len
 
+def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+    # Load teacher model
+    _, teacher_model = load_pruned_bunny_model(teacher_model_path)
+    # Load student model and tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=True)
+    model = BunnyDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, **kwargs)
+    return tokenizer, model, teacher_model
+    
+    
 def load_pretrained_model(model_path, model_base, model_name, model_type, load_8bit=False, load_4bit=False,
                           device_map="auto", device="cuda", **kwargs):
     if model_type not in {'phi-1.5', 'phi-2', 'phi-3', 'stablelm-2', 'qwen1.5-1.8b', 'minicpm', 'llama3-8b'}:
