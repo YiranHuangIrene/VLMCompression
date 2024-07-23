@@ -123,9 +123,6 @@ class BunnyDistillationModel(PhiForCausalLM, BunnyMetaForCausalLM):
         self.teacher_model = teacher
         self.teacher_model.requires_grad_(False)
         self.teacher_model.model.requires_grad_(False)
-    
-    def get_teacher(self, teacher: BunnyPhiForCausalLM):
-        self.get_teacher(teacher)
         
     def get_model(self):
         return self.model
@@ -175,7 +172,7 @@ class BunnyDistillationModel(PhiForCausalLM, BunnyMetaForCausalLM):
             return_dict=return_dict
         )
         with torch.no_grad():
-            teacher_forward = self.model.teacher_model(
+            teacher_forward = self.teacher_model(
             input_ids,
             attention_mask,
             position_ids,
