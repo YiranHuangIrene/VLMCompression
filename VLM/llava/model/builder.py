@@ -17,7 +17,7 @@ import os
 import warnings
 import shutil
 import sys
-sys.path.append('/p/project/taco-vlm/huang17/VLMCompression/LLM-Pruner')
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../LLM-Pruner'))
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
 import torch
 from .language_model.llava_llama import *
@@ -62,6 +62,7 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path, finetune_path=N
         model.load_state_dict(weights, strict=True)  
         
     return tokenizer, model
+
 
 def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, finetune_path=None, lora_path=None, device_map="auto", device="cuda",use_flash_attn=True,  **kwargs):
     if use_flash_attn:

@@ -23,7 +23,8 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 from transformers import LlamaConfig
 import sys
-sys.path.append('/p/project/taco-vlm/huang17/VLMCompression/LLM-Pruner')
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../LLM-Pruner'))
 from LLMPruner.models.hf_llama.modeling_llama import LlamaModel, LlamaForCausalLM
      
 # from .hf_llama.configuration_llama import LlamaConfig                        

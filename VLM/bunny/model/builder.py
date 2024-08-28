@@ -48,7 +48,7 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
                                non_lora_trainables.items()}
         non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in
-                        non_lora_trainables.items()}
+                               non_lora_trainables.items()}
         if any(k.startswith('model.model.') for k in non_lora_trainables):
             non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in
                                    non_lora_trainables.items()}
@@ -164,6 +164,8 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
     if lora:
         non_lora_trainables = torch.load(os.path.join(lora, "non_lora_trainables.bin"), map_location='cpu')
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
+                               non_lora_trainables.items()}
+        non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in
                                non_lora_trainables.items()}
         if any(k.startswith('model.model.') for k in non_lora_trainables):
             non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in
