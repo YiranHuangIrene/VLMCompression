@@ -63,7 +63,8 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path, finetune_path=N
         
     return tokenizer, model
 
-def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, finetune_path=None, lora_path=None, device_map="auto", device="cuda",use_flash_attn=False,  **kwargs):
+
+def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, finetune_path=None, lora_path=None, device_map="auto", device="cuda",use_flash_attn=True,  **kwargs):
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
@@ -73,7 +74,7 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, finetu
                         **kwargs
                     )
     if pruned_model_path is not None:
-        print("Loading pruned model...")
+        print('Loading pruned model...')
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = pruned_model['model'].model.layers
     if lora_path is not None:

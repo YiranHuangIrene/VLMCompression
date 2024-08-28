@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass, field
 import logging
 import pathlib
-from typing import Optional
+from typing import Optional,Union,List
 
 import torch
 
@@ -40,6 +40,8 @@ class ModelArguments:
     use_s2: bool = field(default=False)
     pretrain_mm_mlp_adapter: Optional[str] = field(default=None)
     mm_projector_type: Optional[str] = field(default='mlp2x_gelu')
+    mm: str = field(default=None)
+    lora: str = field(default=None)
 
 
 @dataclass
@@ -83,8 +85,11 @@ class TrainingArguments(transformers.TrainingArguments):
     teacher_pretrain_mm_mlp_adapter: Optional[str] = field(default=None)
     dist_temperature: float = field(default=2.0)
     dist_alpha: float = field(default=1)
+    dist_norm: float = field(default=1)
     dist_strategy: str = field(default="vanilla")
-    distill_norm: bool = field(default=1)
+    # dist_l2_layer is a list of integers representing the layer indices to apply L2 distillation
+    dist_l2_layer: List[int] = field(default_factory=list)
+
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -261,9 +266,9 @@ def train(attn_implementation="flash_attention_2"):
     assert model_args.vision_tower is not None
     # Load the student model on all the GPUs except the last one on the first node, load the teacher model on the last GPU of the first node
     if not training_args.distill:
-        tokenizer, model = load_pruned_bunny_model(bunny_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, model_type=model_args.model_type, **bnb_model_from_pretrained_args)
+        tokenizer, model = load_pruned_bunny_model(bunny_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, model_type=model_args.model_type, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args)
     else:
-        tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, **bnb_model_from_pretrained_args)
+        tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args)
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.unk_token
@@ -380,6 +385,8 @@ def train(attn_implementation="flash_attention_2"):
         model.teacher_model.config.image_aspect_ratio = data_args.image_aspect_ratio
         model.teacher_model.config.tokenizer_padding_side = tokenizer.padding_side
         model.teacher_model.config.tokenizer_model_max_length = tokenizer.model_max_length
+        model.generation_config.output_hidden_states = True
+        model.teacher_model.generation_config.output_hidden_states = True
         trainer = DistillationTrainer(model=model,
                                         tokenizer=tokenizer,
                                         args=training_args,

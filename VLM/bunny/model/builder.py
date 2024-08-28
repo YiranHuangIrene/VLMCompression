@@ -3,7 +3,6 @@ from bunny.model.language_model.bunny_phi import BunnyDistillationModel
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../LLM-Pruner'))
-os.path.join(os.path.dirname("/shared-local/aoq609/VLMCompression/VLM/bunny/model/builder.py"), '../../../LLM-Pruner')
 import warnings
 import torch
 from copy import deepcopy
@@ -17,7 +16,7 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     model_type = "phi-2"
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
+        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
     elif model_type == 'phi-3':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
@@ -94,6 +93,7 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
     if pruned_model_path:
+        print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = pruned_model['model'].model.layers
     model.resize_token_embeddings(len(tokenizer))
@@ -150,6 +150,36 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
     # Load student model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=True)
     model = BunnyDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, **kwargs)
+    if pruned_model_path:
+        print("loading pruned model")
+        pruned_model = torch.load(pruned_model_path, map_location='cpu')
+        model.model.layers = deepcopy(pruned_model['model'].model.layers)
+        del pruned_model
+    model.resize_token_embeddings(len(tokenizer))
+    if mm:
+        mm_path = os.path.join(mm, "mm_projector.bin")
+        mm_projector_weights = torch.load(mm_path, map_location='cpu')
+        mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}
+        model.load_state_dict(mm_projector_weights, strict=False)
+    if lora:
+        non_lora_trainables = torch.load(os.path.join(lora, "non_lora_trainables.bin"), map_location='cpu')
+        non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
+                               non_lora_trainables.items()}
+        if any(k.startswith('model.model.') for k in non_lora_trainables):
+            non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in
+                                   non_lora_trainables.items()}
+        model.load_state_dict(non_lora_trainables, strict=False)
+        from peft import PeftModel
+        print('Loading LoRA weights...')
+        model = PeftModel.from_pretrained(model, lora)
+        print('Merging LoRA weights...')
+        model = model.merge_and_unload()
+        print('Model is loaded...')
+
+    if model.generation_config.pad_token_id is None:
+        model.generation_config.pad_token_id = model.generation_config.eos_token_id
+        
+    model.half()
     return tokenizer, model, teacher_model
     
     
