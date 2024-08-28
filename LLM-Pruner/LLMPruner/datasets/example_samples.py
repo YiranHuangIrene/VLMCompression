@@ -9,8 +9,7 @@ from datasets import load_dataset
 from torch.utils.data.dataset import Dataset
 from datasets import load_dataset
 
-
-BUNNY_DATA_PATH = "/p/scratch/taco-vlm/datasets/Bunny-v1_0-data/finetune/"
+BUNNY_DATA_PATH = "/shared-network/Bunny-v1_0-data/finetune/"
 
 
 def get_c4(tokenizer, n_samples, seq_len):
@@ -65,7 +64,7 @@ def get_alpaca(tokenizer, n_samples, seq_len):
 
 def get_bunny(tokenizer, n_samples, seq_len, batch=False):
     import sys
-    sys.path.append("./../../../VLM")
+    sys.path.append("/shared-local/aoq609/VLMCompression/VLM/")
     from bunny.util.data_utils import make_supervised_data_module, DataArguments
     from bunny.model.builder import load_pruned_bunny_model_all
     tokenizer,model,image_processor,_ = load_pruned_bunny_model_all("BAAI/Bunny-v1_0-3B")

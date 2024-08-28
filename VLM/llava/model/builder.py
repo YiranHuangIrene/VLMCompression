@@ -17,7 +17,7 @@ import os
 import warnings
 import shutil
 import sys
-sys.path.append('/p/project/taco-vlm/huang17/VLMCompression/LLM-Pruner')
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../LLM-Pruner'))
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
 import torch
 from .language_model.llava_llama import *
@@ -63,7 +63,7 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path, finetune_path=N
         
     return tokenizer, model
 
-def load_pruned_llava_model_all(llava_model_path, pruned_model_path, finetune_path=None, lora_path=None, device_map="auto", device="cuda",use_flash_attn=True,  **kwargs):
+def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, finetune_path=None, lora_path=None, device_map="auto", device="cuda",use_flash_attn=False,  **kwargs):
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
@@ -72,8 +72,10 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path, finetune_pa
                         low_cpu_mem_usage=True,
                         **kwargs
                     )
-    pruned_model = torch.load(pruned_model_path, map_location='cpu')
-    model.model.layers = pruned_model['model'].model.layers
+    if pruned_model_path is not None:
+        print("Loading pruned model...")
+        pruned_model = torch.load(pruned_model_path, map_location='cpu')
+        model.model.layers = pruned_model['model'].model.layers
     if lora_path is not None:
         non_lora_trainables = torch.load(os.path.join(lora_path, 'non_lora_trainables.bin'), map_location='cpu')
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in non_lora_trainables.items()}

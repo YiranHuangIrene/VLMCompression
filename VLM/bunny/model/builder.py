@@ -1,8 +1,9 @@
 from bunny.model import *
-from VLM.bunny.model.language_model.bunny_phi import BunnyDistillationModel
+from bunny.model.language_model.bunny_phi import BunnyDistillationModel
 import os
 import sys
-sys.path.append("{}/{}/VLMCompression/LLM-Pruner".format(os.getenv("PROJECT_taco_vlm"), os.getenv("USER")))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../LLM-Pruner'))
+os.path.join(os.path.dirname("/shared-local/aoq609/VLMCompression/VLM/bunny/model/builder.py"), '../../../LLM-Pruner')
 import warnings
 import torch
 from copy import deepcopy
@@ -46,6 +47,8 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     if lora:
         non_lora_trainables = torch.load(os.path.join(lora, "non_lora_trainables.bin"), map_location='cpu')
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
+                               non_lora_trainables.items()}
+        non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in
                                non_lora_trainables.items()}
         if any(k.startswith('model.model.') for k in non_lora_trainables):
             non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in
@@ -102,6 +105,8 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
     if lora:
         non_lora_trainables = torch.load(os.path.join(lora, "non_lora_trainables.bin"), map_location='cpu')
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
+                               non_lora_trainables.items()}
+        non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in
                                non_lora_trainables.items()}
         if any(k.startswith('model.model.') for k in non_lora_trainables):
             non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in

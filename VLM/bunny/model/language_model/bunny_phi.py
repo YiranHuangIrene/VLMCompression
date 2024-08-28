@@ -1,5 +1,6 @@
 import sys
-sys.path.append('/p/project1/taco-vlm/huang17/VLMCompression/LLM-Pruner')
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../LLM-Pruner'))
 from LLMPruner.models.hf_phi2.modeling_phi import PhiModel, PhiForCausalLM
 from transformers import PhiConfig
 

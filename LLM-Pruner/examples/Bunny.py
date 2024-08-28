@@ -1,7 +1,10 @@
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4"
 import gc
 import sys
-sys.path.append("./../LLMPruner")
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../VLM'))
 import time
 import json
 import copy
@@ -20,6 +23,7 @@ from LLMPruner.utils.logger import LoggerWithDepth
 from LLMPruner.evaluator.ppl import PPLMetric
 from LLMPruner.datasets.example_samples import get_examples
 from LLMPruner.templates.prompts import prompts
+from VLM.bunny.model.builder import load_pruned_bunny_model
 
 
 def set_random_seed(seed):
@@ -31,10 +35,15 @@ def set_random_seed(seed):
 def main(args):
     set_random_seed(args.seed)
 
+    if args.lora: 
+        org_pruning_ratio = args.pruned_model_path.split("/")[-2].split("_")[-2]
+        log_name = "{}_{}_{}_{}".format(args.base_model.split("/")[-1],args.dataset, org_pruning_ratio, args.pruning_ratio)
+    else:
+        log_name = "{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset)
     logger = LoggerWithDepth(
-        env_name="{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset), 
+        env_name=log_name, 
         config=args.__dict__,
-        root_dir="/p/project1/taco-vlm/huang17/VLMCompression/LLM-Pruner/LLMPruner/prune_log",
+        root_dir=f"{os.path.join(os.path.dirname(__file__), '../')}/LLMPruner/prune_log",
         setup_sublogger=True
     )
     
@@ -43,6 +52,13 @@ def main(args):
         args.base_model,
         low_cpu_mem_usage=True if args.torch_version >=1.9 else False
     )
+    if args.lora:
+        _, model_lora = load_pruned_bunny_model(args.base_model,args.pruned_model_path,lora=args.lora)
+        model.model.embed_tokens = model_lora.model.embed_tokens
+        model.model.embed_dropout = model_lora.model.embed_dropout
+        model.model.layers = model_lora.model.layers
+        model.lm_head = model_lora.lm_head
+
     if args.device != "cpu":
         model.half() 
     model.to(args.device)
@@ -149,7 +165,11 @@ def main(args):
                                 module_param.acc_grad = copy.deepcopy(module_param.grad)
                         model.zero_grad()
                         del loss.grad
-                example_prompts = get_examples(args.dataset, tokenizer, args.num_examples, seq_len=args.seq_len_prune, batch=True)
+                example_prompts_g = get_examples(args.dataset, tokenizer, args.num_examples, seq_len=args.seq_len_prune, batch=True)
+                example_prompts = [example_prompts_g[i].cpu() for i in range(len(example_prompts_g))]
+                del example_prompts_g
+                torch.cuda.empty_cache()
+                print("Preparing model for distributed training...")
                 model = torch.nn.DataParallel(model)
                 if args.dataset == "bunny":
                     input_embeds = example_prompts[0]
@@ -290,8 +310,10 @@ if __name__ == "__main__":
 
     # argument for parsing
     parser.add_argument('--base_model', type=str, default="BAAI/Bunny-v1_0-3B", help='base model name, or path to the model weights')
+    parser.add_argument('--lora', type=str, default="/shared-local/aoq609/VLMCompression/VLM/bunny/checkpoints/Bunny-v1_0-3B-0.2-bunny-vit-dist-l2+rkl-0.5-layer--1", help='path to LoRA model weights')
+    parser.add_argument('--pruned_model_path', type=str, default="/shared-local/aoq609/VLMCompression_back/LLM-Pruner/LLMPruner/prune_log/Bunny-v1_0-3B_0.2_bunny/pytorch_model.bin")
     parser.add_argument('--save_ckpt_log_name', type=str, default="bunny_prune", help='the path for save the checkpoint and the log. The final path would be log/{your_name_here}_{pruner_type}_{pruning_ratio}')
-    parser.add_argument('--pruning_ratio', type=float, default=0.2, help='pruning ratio')
+    parser.add_argument('--pruning_ratio', type=float, default=0.75, help='pruning ratio')
     parser.add_argument('--pruner_type', type=str, default='taylor', help='pruner type')
     parser.add_argument('--dataset', type=str, default='bunny', help='dataset for importance calculation: alpaca, bookcorpus, c4, scienceqa_txt')
     parser.add_argument('--seq_len_prune', type=int, default=64, help='sequence length for pruning')
