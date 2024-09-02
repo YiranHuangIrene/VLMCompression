@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4"
 import gc
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
@@ -35,9 +34,9 @@ def set_random_seed(seed):
 def main(args):
     set_random_seed(args.seed)
 
-    if args.lora: 
-        org_pruning_ratio = args.pruned_model_path.split("/")[-2].split("_")[-2]
-        log_name = "{}_{}_{}_{}".format(args.base_model.split("/")[-1],args.dataset, org_pruning_ratio, args.pruning_ratio)
+    if args.pruned_model_path: 
+        org_pruning_ratio = "-".join(args.pruned_model_path.split("/")[-2].split("_")[2:-1])
+        log_name = "{}_{}-{}_{}".format(args.base_model.split("/")[-1], org_pruning_ratio, args.pruning_ratio, args.dataset)
     else:
         log_name = "{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset)
     logger = LoggerWithDepth(
@@ -52,7 +51,7 @@ def main(args):
         args.base_model,
         low_cpu_mem_usage=True if args.torch_version >=1.9 else False
     )
-    if args.lora:
+    if args.pruned_model_path:
         _, model_lora = load_pruned_bunny_model(args.base_model,args.pruned_model_path,lora=args.lora)
         model.model.embed_tokens = model_lora.model.embed_tokens
         model.model.embed_dropout = model_lora.model.embed_dropout
@@ -310,8 +309,8 @@ if __name__ == "__main__":
 
     # argument for parsing
     parser.add_argument('--base_model', type=str, default="BAAI/Bunny-v1_0-3B", help='base model name, or path to the model weights')
-    parser.add_argument('--lora', type=str, default="/shared-local/aoq609/VLMCompression/VLM/bunny/checkpoints/Bunny-v1_0-3B-0.2-bunny-vit-dist-l2+rkl-0.5-layer--1", help='path to LoRA model weights')
-    parser.add_argument('--pruned_model_path', type=str, default="/shared-local/aoq609/VLMCompression_back/LLM-Pruner/LLMPruner/prune_log/Bunny-v1_0-3B_0.2_bunny/pytorch_model.bin")
+    parser.add_argument('--lora', type=str, default=None, help='path to LoRA model weights')
+    parser.add_argument('--pruned_model_path', type=str, default=None)
     parser.add_argument('--save_ckpt_log_name', type=str, default="bunny_prune", help='the path for save the checkpoint and the log. The final path would be log/{your_name_here}_{pruner_type}_{pruning_ratio}')
     parser.add_argument('--pruning_ratio', type=float, default=0.75, help='pruning ratio')
     parser.add_argument('--pruner_type', type=str, default='taylor', help='pruner type')
@@ -344,7 +343,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', type=str, default="cuda", help='device')
     parser.add_argument('--test_before_train', action='store_true', help='whether test before train')
     parser.add_argument('--eval_device', type=str, default="cuda", help='eval device')
-    parser.add_argument('--test_after_train', action='store_false', help='whether test after train')
+    parser.add_argument('--test_after_train', action='store_true', help='whether test after train')
 
     parser.add_argument('--seed', type=int, default=42, help='seed')
     parser.add_argument('--save_model', action='store_false', help='if save model')
