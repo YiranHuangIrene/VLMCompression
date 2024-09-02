@@ -3,6 +3,7 @@ import copy
 from dataclasses import dataclass, field
 import json
 from typing import Dict, Sequence, Optional
+import random
 
 import torch
 
@@ -21,6 +22,7 @@ from PIL import Image
 @dataclass
 class DataArguments:
     data_path: str = field(default=None, metadata={"help": "Path to the training data."})
+    data_size: float = field(default=1.0, metadata={"help": "Percentage of the data to use."})
     lazy_preprocess: bool = False
     is_multimodal: bool = True
     image_folder: Optional[str] = field(default=None)
@@ -273,11 +275,25 @@ class LazySupervisedDataset(Dataset):
 
         print("Formatting inputs...Skip in lazy mode")
         self.tokenizer = tokenizer
-        self.list_data_dict = list_data_dict
         self.data_args = data_args
-
+        self.list_data_dict = self.sample_data(list_data_dict, self.data_args.data_size)
+        print(f"Training with {self.data_args.data_size * 100}% of the data. Loaded {len(self.list_data_dict)} samples.")
+        
     def __len__(self):
         return len(self.list_data_dict)
+    
+    def sample_data(self, list_data_dict, sample_size: float=1.0):
+        # Calculate the number of samples to select
+        num_samples = int(len(list_data_dict) * sample_size)
+
+        # Randomly select indices
+        sampled_indices = random.sample(range(len(list_data_dict)), num_samples)
+
+        # Create a new LazySupervisedDataset with the sampled data
+        sampled_data_dict = [list_data_dict[i] for i in sampled_indices]
+        
+        return sampled_data_dict
+        
 
     @property
     def lengths(self):

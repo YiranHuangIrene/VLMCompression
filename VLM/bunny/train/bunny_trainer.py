@@ -288,6 +288,13 @@ class DistillationTrainer(BunnyTrainer):
         rev_kl = nn.functional.kl_div(teacher_logprobs, student_logprobs, reduction='sum', log_target=True)
         rev_kl = rev_kl * (self.args.dist_temperature**2) / student_logits.size(0)
         return rev_kl
+    
+    def get_kl_loss(self, labels, student_logits, teacher_logits):
+        student_logits, student_logprobs = self.compute_logits_and_log_probs(student_logits, labels)
+        teacher_logits, teacher_logprobs = self.compute_logits_and_log_probs(teacher_logits, labels)
+        kl = nn.functional.kl_div(student_logprobs, teacher_logprobs, reduction='sum', log_target=True)
+        kl = kl * (self.args.dist_temperature**2) / student_logits.size(0)
+        return kl
 
     def compute_loss(self, model, inputs, return_outputs=False):
         """
@@ -310,6 +317,16 @@ class DistillationTrainer(BunnyTrainer):
             rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
             xe_loss = outputs['student']["loss"]
             loss = self.args.dist_alpha * rev_kl_loss + (1 - self.args.dist_alpha) * xe_loss
+            
+        if self.args.dist_strategy == "kl":
+            outputs = {}
+            out = model(**inputs)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            kl_loss = self.get_kl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            xe_loss = outputs['student']["loss"]
+            loss = self.args.dist_alpha * (kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
+        
         elif self.args.dist_strategy == "non_lin_norm":
             outputs = {}
             out = model(**inputs)
