@@ -380,7 +380,27 @@ class DistillationTrainer(BunnyTrainer):
                 l2_loss = nn.functional.mse_loss(student_last_layers, teacher_last_layers)
                 xe_loss = outputs['student']["loss"]
                 loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm)
+        elif self.args.dist_strategy == "l2+kl":
+            outputs = {}
+            out = model(**inputs, output_hidden_states=True)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            kl_loss = self.get_kl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            # calculate l2 loss on the last layer feature between student and teacher 
+            if len(self.args.dist_l2_layer)==1:
+                student_last_layer = outputs['student'].hidden_states[self.args.dist_l2_layer[0]]
+                teacher_last_layer = outputs['teacher'].hidden_states[self.args.dist_l2_layer[0]]
+                l2_loss = nn.functional.mse_loss(student_last_layer, teacher_last_layer)   
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (kl_loss / self.args.dist_norm)
+            else:
+                student_last_layers = torch.cat([outputs['student'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                teacher_last_layers = torch.cat([outputs['teacher'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                l2_loss = nn.functional.mse_loss(student_last_layers, teacher_last_layers)
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (kl_loss / self.args.dist_norm)
 
+        
         return (loss, outputs) if return_outputs else loss
 
     @staticmethod
