@@ -14,6 +14,10 @@ warnings.filterwarnings('ignore')
 
 def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
     model_type = "phi-2"
+    kwargs = {"device_map": device_map, **kwargs}
+    if device != "cuda":
+        kwargs['device_map'] = {"": device}
+    kwargs['torch_dtype'] = torch.float16
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
@@ -68,12 +72,16 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
         
     model.half()
-    # model.to(device)
     return tokenizer, model
 
 
 def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
     model_type = "phi-2"
+    kwargs = {"device_map": device_map, **kwargs}
+    if device != "cuda":
+        kwargs['device_map'] = {"": device}
+    kwargs['torch_dtype'] = torch.float16
+    
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
@@ -122,8 +130,7 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
     vision_tower = model.get_vision_tower()
     if not vision_tower.is_loaded:
         vision_tower.load_model()
-    if device_map != 'auto':
-        vision_tower.to(device=device, dtype=torch.float16)
+    vision_tower.to(device=device, dtype=torch.float16)
     image_processor = vision_tower.image_processor
 
     if hasattr(model.config, "max_sequence_length"):
@@ -137,9 +144,7 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
 
     if model.generation_config.pad_token_id is None:
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
-        
-    model.half()
-    model.to(device)
+
     # Print the number of parameters in the model
     print(f"Number of parameters in the model: {model.num_parameters()}")
     return tokenizer, model, image_processor, context_len
@@ -181,7 +186,7 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
     if model.generation_config.pad_token_id is None:
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
         
-    model.half()
+    
     return tokenizer, model, teacher_model
     
     
