@@ -23,16 +23,15 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAn
 import torch
 from .language_model.llava_llama import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-from safetensors import safe_open
 
-def load_pruned_llava_model(llava_model_path, pruned_model_path, mm=None,lora=None, use_flash_attn=True,  **kwargs):
+def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map="auto", device="cuda", use_flash_attn=False,  **kwargs):
+    # kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
-    kwargs['torch_dtype'] = torch.float16
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
     model = LlavaLlamaForCausalLM.from_pretrained(
                         llava_model_path,
-                        # low_cpu_mem_usage=True,
+                        low_cpu_mem_usage=True,
                         **kwargs
                     )
     if pruned_model_path:
@@ -78,7 +77,6 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=N
     kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
-    kwargs['torch_dtype'] = torch.float16
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
     model = LlavaLlamaForCausalLM.from_pretrained(
                         llava_model_path,
@@ -135,24 +133,27 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=N
       
     return tokenizer, model, image_processor, context_len
 
-def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",use_flash_attn=True,  **kwargs):
+def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",use_flash_attn=False,  **kwargs):
     # Load teacher model
-    kwargs = {"device_map": device_map, **kwargs}
-    _, teacher_model = load_pruned_llava_model(teacher_model_path,use_flash_attn=use_flash_attn)
+    # kwargs = {"device_map": device_map, **kwargs}
+    _, teacher_model = load_pruned_llava_model(teacher_model_path,use_flash_attn=use_flash_attn,**kwargs)
     # Load student model and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=True)
-    model = LlavaDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, **kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=False)
+    model = LlavaDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=True, **kwargs)
     if pruned_model_path:
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = deepcopy(pruned_model['model'].model.layers)
+        for layer in model.model.layers:
+            layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
         del pruned_model
-    model.resize_token_embeddings(len(tokenizer))
+    
     if mm:
         mm_path = os.path.join(mm, "mm_projector.bin")
         mm_projector_weights = torch.load(mm_path, map_location='cpu')
         mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}
         model.load_state_dict(mm_projector_weights, strict=False)
+        
     if lora:
         non_lora_trainables = torch.load(os.path.join(lora, "non_lora_trainables.bin"), map_location='cpu')
         non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in
@@ -170,8 +171,13 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
         model = model.merge_and_unload()
         print('Model is loaded...')
 
-    if model.generation_config.pad_token_id is None:
-        model.generation_config.pad_token_id = model.generation_config.eos_token_id
+    mm_use_im_start_end = getattr(model.config, "mm_use_im_start_end", False)
+    mm_use_im_patch_token = getattr(model.config, "mm_use_im_patch_token", True)
+    if mm_use_im_patch_token:
+        tokenizer.add_tokens([DEFAULT_IMAGE_PATCH_TOKEN], special_tokens=True)
+    if mm_use_im_start_end:
+        tokenizer.add_tokens([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN], special_tokens=True)
+    model.resize_token_embeddings(len(tokenizer))
         
     model.half()
     return tokenizer, model, teacher_model
