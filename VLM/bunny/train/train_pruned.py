@@ -110,6 +110,7 @@ def load_non_lora_trainable_params(model, lora_path):
     assert os.path.exists(weight_path), f"non_lora_trainables.bin not found at {weight_path}"
     non_lora_trainables = torch.load(weight_path, map_location='cpu')
     non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in non_lora_trainables.items()}
+    non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in non_lora_trainables.items()}
     if any(k.startswith('model.model.') for k in non_lora_trainables):
         non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in non_lora_trainables.items()}
     model.load_state_dict(non_lora_trainables, strict=False)
@@ -271,12 +272,12 @@ def train(attn_implementation="flash_attention_2"):
         tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args)
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.unk_token
+        tokenizer.pad_token = tokenizer.unk_token
     if model_args.model_type == 'llama3-8b':
         tokenizer.eos_token_id = 128001
         tokenizer.pad_token = tokenizer.eos_token
     # load non lora trainable weights
-    if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+    if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("non_lora_*")):
         print("Loading non lora trainable weights...")
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         model = load_non_lora_trainable_params(model, last_checkpoint)

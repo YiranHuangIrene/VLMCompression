@@ -309,14 +309,14 @@ class DistillationTrainer(BunnyTrainer):
         else:
             labels = None
 
-        if self.args.dist_strategy == "vanilla":
+        if self.args.dist_strategy == "rkl":
             outputs = {}
             out = model(**inputs)
             outputs['student'] = out[0]
             outputs['teacher'] = out[1]
             rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
             xe_loss = outputs['student']["loss"]
-            loss = self.args.dist_alpha * rev_kl_loss + (1 - self.args.dist_alpha) * xe_loss
+            loss = self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
             
         if self.args.dist_strategy == "kl":
             outputs = {}
@@ -326,23 +326,7 @@ class DistillationTrainer(BunnyTrainer):
             kl_loss = self.get_kl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
             xe_loss = outputs['student']["loss"]
             loss = self.args.dist_alpha * (kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
-        
-        elif self.args.dist_strategy == "non_lin_norm":
-            outputs = {}
-            out = model(**inputs)
-            outputs['student'] = out[0]
-            outputs['teacher'] = out[1]
-            rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
-            xe_loss = outputs['student']["loss"]
-            loss = self.args.dist_alpha * (1 - math.exp(-rev_kl_loss)) + (1 - self.args.dist_alpha) * xe_loss
-        elif self.args.dist_strategy == "lin_norm":
-            outputs = {}
-            out = model(**inputs)
-            outputs['student'] = out[0]
-            outputs['teacher'] = out[1]
-            rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
-            xe_loss = outputs['student']["loss"]
-            loss = self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
+
         elif self.args.dist_strategy == "l2":
             outputs = {}
             out = model(**inputs, output_hidden_states=True)
