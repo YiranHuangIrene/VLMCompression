@@ -1,7 +1,10 @@
 import os
 import gc
 import sys
-sys.path.append('/p/project/taco-vlm/huang17/VLMCompression/LLM-Pruner')
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../VLM'))
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,3,4,5,6,7"
 import time
 import json
 import copy
@@ -20,6 +23,7 @@ from LLMPruner.utils.logger import LoggerWithDepth
 from LLMPruner.evaluator.ppl import PPLMetric
 from LLMPruner.datasets.example_samples import get_examples
 from LLMPruner.templates.prompts import prompts
+from VLM.llava.model.builder import load_pruned_llava_model
 
 
 def set_random_seed(seed):
@@ -31,22 +35,40 @@ def set_random_seed(seed):
 def main(args):
     set_random_seed(args.seed)
 
+    if args.pruned_model_path: 
+        org_pruning_ratio = "-".join(args.pruned_model_path.split("/")[-2].split("_")[2:-1])
+        log_name = "{}_{}-{}_{}".format(args.base_model.split("/")[-1], org_pruning_ratio, args.pruning_ratio, args.dataset)
+    else:
+        log_name = "{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset)
+    if args.iterative_steps > 1:
+        log_name += "_iter_{}".format(args.iterative_steps)
+    if args.num_examples != 10:
+        log_name += "_{}_samples".format(args.num_examples)
+    # if args.seq_len_prune:
+    #     log_name += "_seq_{}".format(args.seq_len_prune)
     logger = LoggerWithDepth(
-        env_name="{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio), 
+        env_name=log_name, 
         config=args.__dict__,
-        root_dir='/p/project/taco-vlm/huang17/VLMCompression/LLM-Pruner/LLMPruner/prune_log',
+        root_dir=f"{os.path.join(os.path.dirname(__file__), '../')}/LLMPruner/prune_log",
         setup_sublogger=True
     )
-    # if args.use_flash_attn:
-    #     kwargs['attn_implementation'] = 'flash_attention_2'
+    
     tokenizer= AutoTokenizer.from_pretrained(args.base_model, use_fast=False)
     model = LlamaForCausalLM.from_pretrained(
         args.base_model,
-        low_cpu_mem_usage=True if args.torch_version >=1.9 else False
+        low_cpu_mem_usage=True if args.torch_version >=1.9 else False,
+        device_map="auto"
     )
+    if args.pruned_model_path:
+        _, model_lora = load_pruned_llava_model(args.base_model,args.pruned_model_path,lora=args.lora)
+        model.model.embed_tokens = model_lora.model.embed_tokens
+        model.model.embed_dropout = model_lora.model.embed_dropout
+        model.model.layers = model_lora.model.layers
+        model.lm_head = model_lora.lm_head
+
     if args.device != "cpu":
-        model.half()   # TODO Why half precision
-    model.to(args.device)
+        model.half() 
+    # model.to(args.device)
 
     if args.test_before_train:
         logger.log("\n==================Generation Results before Pruning================\n")
@@ -128,12 +150,16 @@ def main(args):
         for i in range(args.iterative_steps):
 
             if pruner_type in ['taylor']:
-                example_prompts = get_examples('bookcorpus', tokenizer, args.num_examples, seq_len=64).to(args.device)
                 logger.log("Start Backwarding in iterative steps = {}...".format(i))
                 if args.taylor in ['param_mix', 'param_second']:
+                    example_prompts = get_examples(args.dataset, tokenizer, args.num_examples, seq_len=args.seq_len_prune)                  
                     for j in range(args.num_examples):
-                        batch_input = example_prompts[j].unsqueeze(0)
-                        loss = model(batch_input, labels=batch_input).loss
+                        if args.dataset == "llava":
+                            input_embeds = example_prompts[j][0]
+                            labels = example_prompts[j][1]
+                            loss = model(inputs_embeds=input_embeds, labels=labels).loss
+                        else:
+                            loss = model(example_prompts[j], labels=example_prompts[j]).loss
                         logger.log("Loss = {}".format(loss))
                         loss.backward()
 
@@ -145,8 +171,15 @@ def main(args):
                                 module_param.acc_grad = copy.deepcopy(module_param.grad)
                         model.zero_grad()
                         del loss.grad
-                    
-                loss = model(example_prompts, labels=example_prompts).loss
+                example_prompts = get_examples(args.dataset, tokenizer, args.num_examples, seq_len=args.seq_len_prune, batch=True)
+                torch.cuda.empty_cache()
+                if args.dataset == "llava":
+                    input_embeds = example_prompts[0]
+                    labels = example_prompts[1]
+                    attention_mask = example_prompts[2]
+                    loss = model(inputs_embeds=input_embeds, labels=labels, attention_mask=attention_mask).loss
+                else:
+                    loss = model(example_prompts, labels=example_prompts).loss   
                 logger.log("Loss = {}".format(loss))
                 loss.backward()
 
@@ -154,7 +187,6 @@ def main(args):
 
             after_pruning_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
             logger.log("After Iter {}/{}, #parameters: {}".format(i+1, args.iterative_steps, after_pruning_parameters))
-        
             # modify inferece-related attributes
             for layer in model.model.layers:
                 layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
@@ -194,10 +226,16 @@ def main(args):
         
         logger.log("Start Pruning")
         for i in range(args.iterative_steps):
-
             if pruner_type in ['taylor']:
-                example_prompts = get_examples('bookcorpus', tokenizer, 10, seq_len = 64)
                 logger.log("Start Backwarding in iterative steps = {}...".format(i))
+                example_prompts = get_examples(args.dataset, tokenizer, args.num_examples, seq_len=args.seq_len_prune, batch=True).to(args.device)
+                if args.dataset == "bunny":
+                    input_embeds = example_prompts[0]
+                    labels = example_prompts[1]
+                    attention_mask = example_prompts[2]
+                    loss = model(inputs_embeds=input_embeds, labels=labels, attention_mask=attention_mask).loss
+                else:
+                    loss = model(example_prompts, labels=example_prompts).loss   
                 loss = model(example_prompts, labels=example_prompts).loss
                 logger.log("Loss = {}".format(loss))
                 loss.backward()
@@ -229,18 +267,8 @@ def main(args):
     
     gc.collect()
     torch.cuda.empty_cache()
-    print(model)
-    if args.save_model:
-        model.half()
-        torch.save({
-            'model': model, 
-            'tokenizer': tokenizer,
-        }, logger.best_checkpoint_path)
-        # model.save_pretrained(logger.best_checkpoint_path)
-    print(model)
     if args.eval_device != "cpu":
         model.half()
-    model.to(args.eval_device)
 
     model.config.pad_token_id = tokenizer.pad_token_id = 0 
     model.config.bos_token_id = 1
@@ -271,15 +299,33 @@ def main(args):
     ppl = PPLMetric(model, tokenizer, ['wikitext2', 'ptb'], args.max_seq_len, device=args.eval_device)
     logger.log("PPL after pruning: {}".format(ppl))
     logger.log("Memory Requirement: {} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
+    
+    print(model)
+    import accelerate
+    for n,m in model.named_modules():
+        if hasattr(m,"_hf_hook"):
+            accelerate.hooks.remove_hook_from_module(m)
+        m.to = torch.nn.Module.to
+        m.cuda = torch.nn.Module.cuda
+    if args.save_model:
+        model.half()
+        torch.save({
+            'model': model, 
+            'tokenizer': tokenizer,
+        }, logger.best_checkpoint_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Pruning LLaMA (huggingface version)')
 
     # argument for parsing
     parser.add_argument('--base_model', type=str, default="liuhaotian/llava-v1.5-7b", help='base model name, or path to the model weights')
+    parser.add_argument('--lora', type=str, default=None, help='path to LoRA model weights')
+    parser.add_argument('--pruned_model_path', type=str, default=None)
     parser.add_argument('--save_ckpt_log_name', type=str, default="llama_prune", help='the path for save the checkpoint and the log. The final path would be log/{your_name_here}_{pruner_type}_{pruning_ratio}')
     parser.add_argument('--pruning_ratio', type=float, default=0.8, help='pruning ratio')
     parser.add_argument('--pruner_type', type=str, default='taylor', help='pruner type')
+    parser.add_argument('--dataset', type=str, default='llava', help='dataset for importance calculation: alpaca, bookcorpus, c4, llava')
+    parser.add_argument('--seq_len_prune', type=int, default=128, help='sequence length for pruning')
 
     # argument for generation
     parser.add_argument('--temperature', type=float, default=1.0, help='temperature')
@@ -301,13 +347,13 @@ if __name__ == "__main__":
     parser.add_argument('--grouping_strategy', type=str, default='sum', help='Reduce method for grouping')
     parser.add_argument('--global_pruning', action='store_true', help='whether global pruning')
     parser.add_argument('--taylor', type=str, default='param_first', help='choose from [vectorize, param_second, param_first, param_mix]')
-    parser.add_argument('--num_examples', type=int, default=10)
+    parser.add_argument('--num_examples', type=int, default=20)
 
     # general argument
     parser.add_argument('--device', type=str, default="cuda", help='device')
     parser.add_argument('--test_before_train', action='store_true', help='whether test before train')
     parser.add_argument('--eval_device', type=str, default="cuda", help='eval device')
-    parser.add_argument('--test_after_train', action='store_false', help='whether test after train')
+    parser.add_argument('--test_after_train', action='store_true', help='whether test after train')
 
     parser.add_argument('--seed', type=int, default=42, help='seed')
     parser.add_argument('--save_model', action='store_false', help='if save model')

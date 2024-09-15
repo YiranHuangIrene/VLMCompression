@@ -19,4 +19,5 @@ TransformerCompression/
 /VLM/bunny/eval/
 /VLM/llava/eval/
 /LLM-Pruner/lm-evaluation-harness/
-/VLM/bunny/ckpt
+/test.ipynb
+/VLM/bunny/ckpt/

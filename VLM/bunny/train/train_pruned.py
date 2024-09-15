@@ -267,9 +267,9 @@ def train(attn_implementation="flash_attention_2"):
     assert model_args.vision_tower is not None
     # Load the student model on all the GPUs except the last one on the first node, load the teacher model on the last GPU of the first node
     if not training_args.distill:
-        tokenizer, model = load_pruned_bunny_model(bunny_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, model_type=model_args.model_type, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args)
+        tokenizer, model = load_pruned_bunny_model(bunny_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, model_type=model_args.model_type, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args,torch_dtype=(torch.bfloat16 if training_args.bf16 else None))
     else:
-        tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args)
+        tokenizer, model, teacher_model = load_distillation_model(teacher_model_path=training_args.teacher_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, lora=model_args.lora, mm=model_args.mm, **bnb_model_from_pretrained_args,torch_dtype=(torch.bfloat16 if training_args.bf16 else None))
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token

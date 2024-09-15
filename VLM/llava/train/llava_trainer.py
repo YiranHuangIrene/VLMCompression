@@ -275,123 +275,8 @@ class LLaVATrainer(Trainer):
 class DistillationTrainer(LLaVATrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.teacher_model = None
 
-    def get_teacher(self, teacher_args, data_args, compute_dtype, attn_implementation):
-        bnb_model_from_pretrained_args = {}
-        if self.args.bits in [4, 8]:
-            from transformers import BitsAndBytesConfig
-            bnb_model_from_pretrained_args.update(dict(
-                device_map={"": self.args.device},
-                load_in_4bit=self.args.bits == 4,
-                load_in_8bit=self.args.bits == 8,
-                quantization_config=BitsAndBytesConfig(
-                    load_in_4bit=self.args.bits == 4,
-                    load_in_8bit=self.args.bits == 8,
-                    llm_int8_skip_modules=["mm_projector"],
-                    llm_int8_threshold=6.0,
-                    llm_int8_has_fp16_weight=False,
-                    bnb_4bit_compute_dtype=compute_dtype,
-                    bnb_4bit_use_double_quant=self.args.double_quant,
-                    bnb_4bit_quant_type=self.args.quant_type  # {'fp4', 'nf4'}
-                )
-            ))
-        if teacher_args.vision_tower is not None:
-            if 'mpt' in teacher_args.model_name_or_path:
-                config = transformers.AutoConfig.from_pretrained(teacher_args.model_name_or_path, trust_remote_code=True)
-                config.attn_config['attn_impl'] = self.args.mpt_attn_impl
-                model = LlavaMptForCausalLM.from_pretrained(
-                    teacher_args.model_name_or_path,
-                    config=config,
-                    cache_dir=self.args.cache_dir,
-                    **bnb_model_from_pretrained_args
-                )
-            else:
-                model = LlavaLlamaForCausalLM.from_pretrained(
-                    teacher_args.model_name_or_path,
-                    cache_dir=self.args.cache_dir,
-                    attn_implementation=attn_implementation,
-                    torch_dtype=(torch.bfloat16 if self.args.bf16 else None),
-                    **bnb_model_from_pretrained_args
-                )
-        else:
-            model = transformers.LlamaForCausalLM.from_pretrained(
-                teacher_args.model_name_or_path,
-                cache_dir=self.args.cache_dir,
-                attn_implementation=attn_implementation,
-                torch_dtype=(torch.bfloat16 if self.args.bf16 else None),
-                **bnb_model_from_pretrained_args
-            )
-        model.config.use_cache = False
-
-        model.model.requires_grad_(False)
-
-        if self.args.bits == 16:
-            if self.args.bf16:
-                model.to(torch.bfloat16)
-            if self.args.fp16:
-                model.to(torch.float16)
-
-        if self.args.bits in [4, 8]:
-            from peft import prepare_model_for_kbit_training
-            model.config.torch_dtype = (
-                torch.float32 if self.args.fp16 else (torch.bfloat16 if self.args.bf16 else torch.float32))
-            model = prepare_model_for_kbit_training(model,
-                                                    use_gradient_checkpointing=self.args.gradient_checkpointing)
-
-        if self.args.gradient_checkpointing:
-            if hasattr(model, "enable_input_require_grads"):
-                model.enable_input_require_grads()
-            else:
-                def make_inputs_require_grad(module, input, output):
-                    output.requires_grad_(True)
-
-                model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-        if teacher_args.vision_tower is not None:
-            model.get_model().initialize_vision_modules(
-                model_args=teacher_args,
-                fsdp=self.args.fsdp
-            )
-
-            vision_tower = model.get_vision_tower()
-            vision_tower.to(dtype=torch.bfloat16 if self.args.bf16 else torch.float16, device=self.args.device)
-            data_args.image_processor = vision_tower.image_processor
-            data_args.is_multimodal = True
-
-            model.config.image_aspect_ratio = data_args.image_aspect_ratio
-            model.config.tokenizer_padding_side = self.tokenizer.padding_side
-            model.config.tokenizer_model_max_length = self.tokenizer.model_max_length
-
-            for p in model.get_model().mm_projector.parameters():
-                p.requires_grad = False
-
-            if self.args.bits in [4, 8]:
-                model.get_model().mm_projector.to(dtype=compute_dtype, device=self.args.device)
-
-            model.config.mm_use_im_start_end = data_args.mm_use_im_start_end = teacher_args.mm_use_im_start_end
-            model.config.mm_projector_lr = self.args.mm_projector_lr
-            self.args.use_im_start_end = teacher_args.mm_use_im_start_end
-            model.config.mm_use_im_patch_token = teacher_args.mm_use_im_patch_token
-            model.initialize_vision_tokenizer(teacher_args, tokenizer=self.tokenizer)
-
-            if self.args.bits in [4, 8]:
-                from peft.tuners.lora import LoraLayer
-                for name, module in model.named_modules():
-                    if isinstance(module, LoraLayer):
-                        if self.args.bf16:
-                            module = module.to(torch.bfloat16)
-                    if 'norm' in name:
-                        module = module.to(torch.float32)
-                    if 'lm_head' in name or 'embed_tokens' in name:
-                        if hasattr(module, 'weight'):
-                            if self.args.bf16 and module.weight.dtype == torch.float32:
-                                module = module.to(torch.bfloat16)
-        # model.to(device=self.accelerator.device)
-        model.to(device=teacher_args.device)
-        self.teacher_model = model
-
-    def get_distil_loss(self, labels, student_logits, teacher_logits):
+    def get_rkl_loss(self, labels, student_logits, teacher_logits):
         student_logits, student_logprobs = self.compute_logits_and_log_probs(student_logits, labels)
         teacher_logits, teacher_logprobs = self.compute_logits_and_log_probs(teacher_logits, labels)
 
@@ -400,6 +285,13 @@ class DistillationTrainer(LLaVATrainer):
         rev_kl = rev_kl * (self.args.dist_temperature**2) / student_logits.size(0)
         return rev_kl
 
+    def get_kl_loss(self, labels, student_logits, teacher_logits):
+        student_logits, student_logprobs = self.compute_logits_and_log_probs(student_logits, labels)
+        teacher_logits, teacher_logprobs = self.compute_logits_and_log_probs(teacher_logits, labels)
+        kl = nn.functional.kl_div(student_logprobs, teacher_logprobs, reduction='sum', log_target=True)
+        kl = kl * (self.args.dist_temperature**2) / student_logits.size(0)
+        return kl
+    
     def compute_loss(self, model, inputs, return_outputs=False):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
@@ -412,46 +304,82 @@ class DistillationTrainer(LLaVATrainer):
             labels = inputs.pop("labels")
         else:
             labels = None
-        teacher_inputs = {k: v.to(device=self.teacher_model.device) for k, v in inputs.items()}
-        #outputs = model(**inputs)
-        outputs = {}
-        def student_forward(model, inputs):
-            outputs['student'] = model(**inputs)
-        def teacher_forward(model, inputs):
-            with torch.no_grad():
-                outputs['teacher'] = model(**inputs)
-        # Create threads
-        teacher_thread = threading.Thread(target=teacher_forward, args=(self.teacher_model, teacher_inputs))
-        # teacher_thread = threading.Thread(target=teacher_forward, args=(self.teacher_model, inputs))
-        student_thread = threading.Thread(target=student_forward, args=(model, inputs))
+            
+        if self.args.dist_strategy == "rkl":
+            outputs = {}
+            out = model(**inputs)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            rev_kl_loss = self.get_rkl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            xe_loss = outputs['student']["loss"]
+            loss = self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
+            
+        if self.args.dist_strategy == "kl":
+            outputs = {}
+            out = model(**inputs)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            kl_loss = self.get_kl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            xe_loss = outputs['student']["loss"]
+            loss = self.args.dist_alpha * (kl_loss / self.args.dist_norm) + (1 - self.args.dist_alpha) * xe_loss
 
-        # Start threads
-        teacher_thread.start()
-        student_thread.start()
-
-        # Wait for both threads to finish
-        teacher_thread.join()
-        student_thread.join()
-
-        # Save past state if it exists
-        # TODO: this needs to be fixed and made cleaner later.
-        if self.args.past_index >= 0:
-            self._past = outputs['student'][self.args.past_index]
-
-        rev_kl_loss = self.get_distil_loss(labels, outputs['student'].logits, outputs['teacher'].logits.to(device=outputs['student'].logits.device))
-        xe_loss = outputs['student']["loss"]
-
-        loss = self.args.dist_alpha * rev_kl_loss + (1 - self.args.dist_alpha) * xe_loss
-
+        elif self.args.dist_strategy == "l2":
+            outputs = {}
+            out = model(**inputs, output_hidden_states=True)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            # calculate l2 loss on the last layer feature between student and teacher 
+            if len(self.args.dist_l2_layer)==1:
+                student_last_layer = outputs['student'].hidden_states[self.args.dist_l2_layer[0]]
+                teacher_last_layer = outputs['teacher'].hidden_states[self.args.dist_l2_layer[0]]
+                l2_loss = nn.functional.mse_loss(student_last_layer, teacher_last_layer)   
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss
+            else:
+                student_last_layers = torch.cat([outputs['student'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                teacher_last_layers = torch.cat([outputs['teacher'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                l2_loss = nn.functional.mse_loss(student_last_layers, teacher_last_layers)
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss
+        elif self.args.dist_strategy == "l2+rkl":
+            outputs = {}
+            out = model(**inputs, output_hidden_states=True)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            rev_kl_loss = self.get_rkl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            # calculate l2 loss on the last layer feature between student and teacher 
+            if len(self.args.dist_l2_layer)==1:
+                student_last_layer = outputs['student'].hidden_states[self.args.dist_l2_layer[0]]
+                teacher_last_layer = outputs['teacher'].hidden_states[self.args.dist_l2_layer[0]]
+                l2_loss = nn.functional.mse_loss(student_last_layer, teacher_last_layer)   
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm)
+            else:
+                student_last_layers = torch.cat([outputs['student'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                teacher_last_layers = torch.cat([outputs['teacher'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                l2_loss = nn.functional.mse_loss(student_last_layers, teacher_last_layers)
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (rev_kl_loss / self.args.dist_norm)
+        elif self.args.dist_strategy == "l2+kl":
+            outputs = {}
+            out = model(**inputs, output_hidden_states=True)
+            outputs['student'] = out[0]
+            outputs['teacher'] = out[1]
+            kl_loss = self.get_kl_loss(labels, outputs['student'].logits, outputs['teacher'].logits)
+            # calculate l2 loss on the last layer feature between student and teacher 
+            if len(self.args.dist_l2_layer)==1:
+                student_last_layer = outputs['student'].hidden_states[self.args.dist_l2_layer[0]]
+                teacher_last_layer = outputs['teacher'].hidden_states[self.args.dist_l2_layer[0]]
+                l2_loss = nn.functional.mse_loss(student_last_layer, teacher_last_layer)   
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (kl_loss / self.args.dist_norm)
+            else:
+                student_last_layers = torch.cat([outputs['student'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                teacher_last_layers = torch.cat([outputs['teacher'].hidden_states[layer] for layer in self.args.dist_l2_layer], dim=1)
+                l2_loss = nn.functional.mse_loss(student_last_layers, teacher_last_layers)
+                xe_loss = outputs['student']["loss"]
+                loss = self.args.dist_alpha * l2_loss + (1 - self.args.dist_alpha) * xe_loss + self.args.dist_alpha * (kl_loss / self.args.dist_norm)
         return (loss, outputs) if return_outputs else loss
-
-    @staticmethod
-    def get_rev_kl(log_p, log_q, mask):
-        log_ratio = (log_p - log_q)
-        if mask is not None:
-            log_ratio = log_ratio * mask
-        kl = log_ratio.float().exp() - 1 - log_ratio
-        return kl
 
     @staticmethod
     def get_log_probs(logits, ids, mask=None, inf_mask=None, model_parallel=False):

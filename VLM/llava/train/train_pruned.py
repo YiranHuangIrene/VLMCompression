@@ -16,27 +16,28 @@
 
 import os
 import sys
-sys.path.append('/p/project/taco-vlm/huang17/VLMCompression/VLM/llava')
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 import copy
 from dataclasses import dataclass, field
 import json
 import logging
 import pathlib
 from typing import Dict, Optional, Sequence, List
-import deepspeed
+import random
 import torch
 
 import transformers
 import tokenizers
 
-from constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from torch.utils.data import Dataset
-from llava_trainer import LLaVATrainer, DistillationTrainer
-from model.builder import load_pruned_llava_model
 
-import conversation as conversation_lib
-from model import *
-from mm_utils import tokenizer_image_token
+from VLM.llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+from VLM.llava.train.llava_trainer import LLaVATrainer, DistillationTrainer
+from VLM.llava.model.builder import load_pruned_llava_model, load_distillation_model
+import VLM.llava.conversation as conversation_lib
+from VLM.llava.model import *
+from VLM.llava.mm_utils import tokenizer_image_token
 
 from transformers.trainer_utils import get_last_checkpoint
 from PIL import Image
@@ -57,9 +58,9 @@ IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= versio
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="liuhaotian/llava-v1.5-7b")
-    pruned_model_path: Optional[str] = field(default="/shared-local/aoq609/VLMCompression/LLM-Pruner/LLMPruner/prune_log/llava-v1.5-7b_0.4/pytorch_model.bin")
-    finetune_path: Optional[str] = field(default=None)
-    lora_path: Optional[str] = field(default=None)
+    pruned_model_path: Optional[str] = field(default=None)
+    mm: Optional[str] = field(default=None)
+    lora: Optional[str] = field(default=None)
     version: Optional[str] = field(default="v1")
     freeze_backbone: bool = field(default=False)
     tune_mm_mlp_adapter: bool = field(default=False)
@@ -75,11 +76,12 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    data_path: str = field(default='/shared-local/aoq609/LLaVA/playground/data/llava_v1_5_mix665k.json',
+    data_path: str = field(default=None,
                            metadata={"help": "Path to the training data."})
+    data_size: float = field(default=1.0, metadata={"help": "Percentage of the data to use."})
     lazy_preprocess: bool = True
     is_multimodal: bool = False
-    image_folder: Optional[str] = field(default='/shared-network/llava')
+    image_folder: Optional[str] = field(default=None)
     image_aspect_ratio: str = 'pad'
 
 
@@ -148,6 +150,9 @@ class TrainingArguments(transformers.TrainingArguments):
     teacher_pretrain_mm_mlp_adapter: Optional[str] = field(default=None)
     dist_temperature: float = field(default=2.0)
     dist_alpha: float = field(default=1)
+    dist_norm: float = field(default=1)
+    dist_strategy: str = field(default="kl")
+    dist_l2_layer: List[int] = field(default_factory=list)
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -168,9 +173,18 @@ def load_non_lora_trainable_params(model, lora_path):
     print("Found non lora trainables at", weight_path)
     non_lora_trainables = torch.load(weight_path, map_location='cpu')
     non_lora_trainables = {(k[18:] if k.startswith('module.base_model.') else k): v for k, v in non_lora_trainables.items()}
+    non_lora_trainables = {(k[11:] if k.startswith('base_model.') else k): v for k, v in non_lora_trainables.items()}
     if any(k.startswith('model.model.') for k in non_lora_trainables):
         non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in non_lora_trainables.items()}
     model.load_state_dict(non_lora_trainables, strict=False)
+    return model
+
+def load_mm_projector(model, mm_projector_folder):
+    mm_projector_path = os.path.join(mm_projector_folder, 'mm_projector.bin')
+    assert os.path.exists(mm_projector_path), f"mm_projector.bin not found at {mm_projector_path}"
+    mm_projector_weights = torch.load(mm_projector_path, map_location='cpu')
+    mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}
+    model.load_state_dict(mm_projector_weights, strict=False)
     return model
     
 # Borrowed from peft.utils.get_peft_model_state_dict
@@ -715,7 +729,21 @@ class LazySupervisedDataset(Dataset):
         self.tokenizer = tokenizer
         self.list_data_dict = list_data_dict
         self.data_args = data_args
+        self.list_data_dict = self.sample_data(list_data_dict, self.data_args.data_size)
+        print(f"Training with {self.data_args.data_size * 100}% of the data. Loaded {len(self.list_data_dict)} samples.")
+        
+    def sample_data(self, list_data_dict, sample_size: float=1.0):
+        # Calculate the number of samples to select
+        num_samples = int(len(list_data_dict) * sample_size)
 
+        # Randomly select indices
+        sampled_indices = random.sample(range(len(list_data_dict)), num_samples)
+
+        # Create a new LazySupervisedDataset with the sampled data
+        sampled_data_dict = [list_data_dict[i] for i in sampled_indices]
+        
+        return sampled_data_dict
+        
     def __len__(self):
         return len(self.list_data_dict)
 
@@ -738,7 +766,6 @@ class LazySupervisedDataset(Dataset):
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         sources = self.list_data_dict[i]
-        print("from dataset:", sources['image'])
         if isinstance(i, int):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
@@ -857,10 +884,6 @@ def train(attn_implementation=None):
            )
     
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
-    if training_args.distill:
-        print("training_args._n_gpu before", training_args._n_gpu)
-        training_args._n_gpu -= 1
-        print("training_args._n_gpu after", training_args._n_gpu)
     bnb_model_from_pretrained_args = {}
     if training_args.bits in [4, 8]:
         from transformers import BitsAndBytesConfig
@@ -880,40 +903,21 @@ def train(attn_implementation=None):
             )
         ))
 
-    if model_args.vision_tower is not None:
-        if 'mpt' in model_args.model_name_or_path:
-            config = transformers.AutoConfig.from_pretrained(model_args.model_name_or_path, trust_remote_code=True)
-            config.attn_config['attn_impl'] = training_args.mpt_attn_impl
-            model = LlavaMptForCausalLM.from_pretrained(
-                model_args.model_name_or_path,
-                config=config,
-                cache_dir=training_args.cache_dir,
-                **bnb_model_from_pretrained_args
-            )
-        else:
-            tokenizer, model = load_pruned_llava_model(llava_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, finetune_path=model_args.finetune_path, lora_path=model_args.lora_path, use_flash_attn=attn_implementation, torch_dtype=(torch.bfloat16 if training_args.bf16 else None))
-            # model = LlavaLlamaForCausalLM.from_pretrained(
-            #     model_args.model_name_or_path,
-            #     cache_dir=training_args.cache_dir,
-            #     attn_implementation=attn_implementation,
-            #     torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-            #     **bnb_model_from_pretrained_args
-            # )
+    assert model_args.vision_tower is not None
+    if not training_args.distill:
+        tokenizer, model = load_pruned_llava_model(llava_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, mm=model_args.mm, lora=model_args.lora, use_flash_attn=attn_implementation, torch_dtype=(torch.bfloat16 if training_args.bf16 else None))
     else:
-        model = transformers.LlamaForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            attn_implementation=attn_implementation,
-            torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-            **bnb_model_from_pretrained_args
-        )
-        
+        tokenizer, model, teacher_model  = load_distillation_model(teacher_model_path=model_args.model_name_or_path, student_model_path=model_args.model_name_or_path, pruned_model_path=model_args.pruned_model_path, mm=model_args.mm, lora=model_args.lora, use_flash_attn=attn_implementation, torch_dtype=(torch.bfloat16 if training_args.bf16 else None))
     # load non lora trainable weights
-    if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        # load non lora trainable weights
+    if training_args.lora_enable and list(pathlib.Path(training_args.output_dir).glob("non_lora_*")):
         print("Loading non lora trainable weights...")
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         model = load_non_lora_trainable_params(model, last_checkpoint)
-        
+    if model_args.tune_mm_mlp_adapter and list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+            print("Loading mm projector weights...")
+            last_checkpoint = get_last_checkpoint(training_args.output_dir)
+            model = load_mm_projector(model, last_checkpoint)
     model.config.use_cache = False
 
     if model_args.freeze_backbone:
@@ -949,22 +953,6 @@ def train(attn_implementation=None):
                 model.to(torch.float16)
         rank0_print("Adding LoRA adapters...")
         model = get_peft_model(model, lora_config)
-
-    # if 'mpt' in model_args.model_name_or_path:
-    #     tokenizer = transformers.AutoTokenizer.from_pretrained(
-    #         model_args.model_name_or_path,
-    #         cache_dir=training_args.cache_dir,
-    #         model_max_length=training_args.model_max_length,
-    #         padding_side="right"
-    #     )
-    # else:
-    #     tokenizer = transformers.AutoTokenizer.from_pretrained(
-    #         model_args.model_name_or_path,
-    #         cache_dir=training_args.cache_dir,
-    #         model_max_length=training_args.model_max_length,
-    #         padding_side="right",
-    #         use_fast=False,
-    #     )
 
     if model_args.version == "v0":
         if tokenizer.pad_token is None:
@@ -1037,15 +1025,22 @@ def train(attn_implementation=None):
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
     if training_args.distill:
-        trainer = DistillationTrainer(model=model,
-                                      tokenizer=tokenizer,
-                                      args=training_args,
-                                      **data_module)
+        model.get_teacher(teacher_model)
         teacher_args = copy.deepcopy(model_args)
-        teacher_args.model_name_or_path = training_args.teacher_name_or_path
-        teacher_args.pretrain_mm_mlp_adapter = training_args.teacher_pretrain_mm_mlp_adapter
-        teacher_args.device = f'cuda:{training_args._n_gpu}'
-        trainer.get_teacher(teacher_args, data_args, compute_dtype, attn_implementation)
+        model.teacher_model.get_model().initialize_vision_modules(model_args=teacher_args)
+        teacher_vision_tower = model.teacher_model.get_vision_tower()
+        teacher_vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
+        model.teacher_model.config.image_aspect_ratio = data_args.image_aspect_ratio
+        model.teacher_model.config.tokenizer_padding_side = tokenizer.padding_side
+        model.teacher_model.config.tokenizer_model_max_length = tokenizer.model_max_length
+        model.teacher_model.config.mm_use_im_start_end = model_args.mm_use_im_start_end
+        model.teacher_model.config.mm_use_im_patch_token = model_args.mm_use_im_patch_token
+        model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
+        model.generation_config.output_hidden_states = True
+        trainer = DistillationTrainer(model=model,
+                                        tokenizer=tokenizer,
+                                        args=training_args,
+                                        **data_module)
     else:
         trainer = LLaVATrainer(model=model,
                         tokenizer=tokenizer,
@@ -1076,5 +1071,5 @@ def train(attn_implementation=None):
 
       
 if __name__ == "__main__":
-    train(attn_implementation="flash_attention_2")
+    train(attn_implementation=None)
     # train()
