@@ -17,7 +17,6 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
-    kwargs['torch_dtype'] = torch.float16
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
@@ -80,7 +79,6 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
     kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
-    kwargs['torch_dtype'] = torch.float16
     
     if model_type == 'phi-1.5' or model_type == 'phi-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
@@ -159,7 +157,10 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = deepcopy(pruned_model['model'].model.layers)
+        for layer in model.model.layers:
+            layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
         del pruned_model
+
     model.resize_token_embeddings(len(tokenizer))
     if mm:
         mm_path = os.path.join(mm, "mm_projector.bin")
