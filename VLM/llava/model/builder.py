@@ -24,8 +24,9 @@ import torch
 from .language_model.llava_llama import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
-def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map="auto", device="cuda", use_flash_attn=False,  **kwargs):
-    # kwargs = {"device_map": device_map, **kwargs}
+def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map=None, device="cuda", use_flash_attn=False,  **kwargs):
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
@@ -74,8 +75,9 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lo
     return tokenizer, model
 
 
-def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=None, mm=None, device_map="auto", device="cuda",use_flash_attn=False,  **kwargs):
-    kwargs = {"device_map": device_map, **kwargs}
+def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=None, mm=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
         kwargs['attn_implementation'] = 'flash_attention_2'
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
@@ -134,9 +136,9 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=N
       
     return tokenizer, model, image_processor, context_len
 
-def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",use_flash_attn=False,  **kwargs):
-    # Load teacher model
-    # kwargs = {"device_map": device_map, **kwargs}
+def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     _, teacher_model = load_pruned_llava_model(teacher_model_path,use_flash_attn=use_flash_attn,**kwargs)
     # Load student model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=False)
