@@ -1035,8 +1035,7 @@ def train(attn_implementation=None):
         model.teacher_model.config.tokenizer_model_max_length = tokenizer.model_max_length
         model.teacher_model.config.mm_use_im_start_end = model_args.mm_use_im_start_end
         model.teacher_model.config.mm_use_im_patch_token = model_args.mm_use_im_patch_token
-        model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
-        model.generation_config.output_hidden_states = True
+        model.teacher_model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
         trainer = DistillationTrainer(model=model,
                                         tokenizer=tokenizer,
                                         args=training_args,
