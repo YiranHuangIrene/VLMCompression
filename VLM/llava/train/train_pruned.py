@@ -869,10 +869,9 @@ def train(attn_implementation=None):
     local_rank = training_args.local_rank
     # initialize wandb and set multi-process group
     if_lora = "lora" if training_args.lora_enable else "full"
-    distill_param = f"distill_{training_args.dist_alpha}" 
     if training_args.wandb_group is None:
         if training_args.distill:
-            training_args.wandb_group = f'{model_args.pruned_model_path.split("/")[-2]}_{if_lora}_{distill_param}'  
+            training_args.wandb_group = f'{model_args.pruned_model_path.split("/")[-2]}_dist_{training_args.dist_temperature}_{training_args.dist_strategy}_{training_args.dist_alpha}'  
         else:
             training_args.wandb_group = f'{model_args.pruned_model_path.split("/")[-2]}_{if_lora}'
     wandb.init(project="vlmcompression",
