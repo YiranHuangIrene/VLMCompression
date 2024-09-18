@@ -12,7 +12,7 @@ from transformers import AutoTokenizer, AutoConfig, BitsAndBytesConfig, logging
 logging.set_verbosity_error()
 warnings.filterwarnings('ignore')
 
-def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
     model_type = "phi-2"
     kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
@@ -39,6 +39,12 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = deepcopy(pruned_model['model'].model.layers)
+        # For LLM-Pruner, change the number of attn heads
+        for layer in model.model.layers:
+            layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        # For shortGPT, change the number of layers
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
         del pruned_model
     model.resize_token_embeddings(len(tokenizer))
     if mm:
@@ -74,7 +80,7 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     return tokenizer, model
 
 
-def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
     model_type = "phi-2"
     kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
@@ -102,6 +108,13 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
         model.model.layers = pruned_model['model'].model.layers
+         # For LLM-Pruner, change the number of attn heads
+        for layer in model.model.layers:
+            layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        # For shortGPT, change the number of layers
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
+        del pruned_model
     model.resize_token_embeddings(len(tokenizer))
     if mm:
         mm_path = os.path.join(mm, "mm_projector.bin")
@@ -147,7 +160,7 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
     print(f"Number of parameters in the model: {model.num_parameters()}")
     return tokenizer, model, image_processor, context_len
 
-def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="auto", device="cuda",  **kwargs):
+def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
     # Load teacher model
     _, teacher_model = load_pruned_bunny_model(teacher_model_path)
     # Load student model and tokenizer
@@ -159,6 +172,9 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
         model.model.layers = deepcopy(pruned_model['model'].model.layers)
         for layer in model.model.layers:
             layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
+
         del pruned_model
 
     model.resize_token_embeddings(len(tokenizer))
