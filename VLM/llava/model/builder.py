@@ -75,7 +75,7 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lo
     return tokenizer, model
 
 
-def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=None, mm=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
+def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
     if device_map is not None:
         kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
