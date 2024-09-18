@@ -733,16 +733,13 @@ class LazySupervisedDataset(Dataset):
         print(f"Training with {self.data_args.data_size * 100}% of the data. Loaded {len(self.list_data_dict)} samples.")
         
     def sample_data(self, list_data_dict, sample_size: float=1.0):
-        # Calculate the number of samples to select
-        num_samples = int(len(list_data_dict) * sample_size)
-
-        # Randomly select indices
-        sampled_indices = random.sample(range(len(list_data_dict)), num_samples)
-
-        # Create a new LazySupervisedDataset with the sampled data
-        sampled_data_dict = [list_data_dict[i] for i in sampled_indices]
-        
-        return sampled_data_dict
+        if sample_size == 1.0:
+            return list_data_dict
+        else:
+            num_samples = int(len(list_data_dict) * sample_size)
+            sampled_indices = random.sample(range(len(list_data_dict)), num_samples)
+            sampled_data_dict = [list_data_dict[i] for i in sampled_indices]
+            return sampled_data_dict
         
     def __len__(self):
         return len(self.list_data_dict)

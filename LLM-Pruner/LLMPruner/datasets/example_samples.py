@@ -3,16 +3,20 @@ import json
 import numpy as np
 import torch
 import os
+import pwd
 from PIL import Image
 
 from datasets import load_dataset
 from torch.utils.data.dataset import Dataset
 from datasets import load_dataset
 
-BUNNY_DATA_PATH = "/p/scratch/taco-vlm/datasets/Bunny-v1_0-data/finetune/"
-LLAVA_DATA_PATH = "/p/scratch/taco-vlm/datasets/llava/"
-# BUNNY_DATA_PATH = "/shared-network/Bunny-v1_0-data/finetune/"
-# LLAVA_DATA_PATH = "/shared-network/llava/"
+
+if pwd.getpwuid(os.getuid())[0] == "aoq609":
+    BUNNY_DATA_PATH = "/shared-network/Bunny-v1_0-data/finetune/"
+    LLAVA_DATA_PATH = "/shared-network/llava/"
+elif pwd.getpwuid(os.getuid())[0] == "huang17":
+    BUNNY_DATA_PATH = "/p/scratch/taco-vlm/datasets/Bunny-v1_0-data/finetune/"
+    LLAVA_DATA_PATH = "/p/scratch/taco-vlm/datasets/llava/"
 
 
 def get_c4(tokenizer, n_samples, seq_len):
@@ -66,7 +70,7 @@ def get_alpaca(tokenizer, n_samples, seq_len):
     return torch.cat(tokenized_samples, dim=0).to('cuda')
 
 def get_bunny(tokenizer, n_samples, seq_len, batch=False):
-    from bunny.util.data_utils import make_supervised_data_module, DataArguments
+    from bunny.util.data_utils import LazySupervisedDataset, DataArguments
     from bunny.model.builder import load_pruned_bunny_model_all
     tokenizer,model,image_processor,_ = load_pruned_bunny_model_all("BAAI/Bunny-v1_0-3B")
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
@@ -77,8 +81,9 @@ def get_bunny(tokenizer, n_samples, seq_len, batch=False):
     data_args.lazy_preprocess = True
     data_args.image_folder = BUNNY_DATA_PATH + "images"
     data_args.image_aspect_ratio = "pad"
-    data_module = make_supervised_data_module(tokenizer, data_args)
-    traindata = data_module["train_dataset"]
+    traindata = LazySupervisedDataset(tokenizer=tokenizer,
+                                          data_path=data_args.data_path,
+                                          data_args=data_args)
     if not batch:
         embeds = []
         labels = []
@@ -157,7 +162,7 @@ def get_bunny(tokenizer, n_samples, seq_len, batch=False):
         return embeds, labels, attention_mask
 
 def get_llava(tokenizer, n_samples, seq_len, batch):
-    from llava.train.train_pruned import make_supervised_data_module, DataArguments
+    from llava.train.train_pruned import LazySupervisedDataset, DataArguments
     from llava.model.builder import load_pruned_llava_model_all
     tokenizer,model,image_processor,_ = load_pruned_llava_model_all("liuhaotian/llava-v1.5-7b")
     tokenizer.pad_token = tokenizer.unk_token
@@ -173,9 +178,9 @@ def get_llava(tokenizer, n_samples, seq_len, batch):
     model.config.image_aspect_ratio = data_args.image_aspect_ratio
     model.config.tokenizer_padding_side = tokenizer.padding_side
     model.config.tokenizer_model_max_length = tokenizer.model_max_length
-    data_module = make_supervised_data_module(tokenizer=tokenizer,
-                                              data_args=data_args)
-    traindata = data_module["train_dataset"]
+    traindata = LazySupervisedDataset(tokenizer=tokenizer,
+                                          data_path=data_args.data_path,
+                                          data_args=data_args)
     if not batch:
         embeds = []
         labels = []

@@ -22,3 +22,4 @@ TransformerCompression/
 /test.ipynb
 /VLM/bunny/ckpt/
 /VLM/llava/ckpt/
+/ShortGPT/prune_log/
