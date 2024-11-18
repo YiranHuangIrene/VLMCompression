@@ -9,7 +9,7 @@ import random
 import numpy as np
 import argparse
 from tqdm import tqdm
-from utils import Collate
+from utils import Collate, build_datasets
 from short_vlm import ShortVLM
     
 def set_random_seed(seed):
@@ -33,7 +33,8 @@ def get_data(model_name, tokenizer, image_processor, num_samples, device) -> Dat
         dataset = LazySupervisedDataset(tokenizer=tokenizer,
                                             data_path=data_args.data_path,
                                             data_args=data_args)
-
+        print(f"{num_samples} samples loaded")
+        collate_fn = Collate(tokenizer, model, device)
     elif model_name == "liuhaotian/llava-v1.5-7b":
         from llava.train.train_pruned import  DataArguments, LazySupervisedDataset
         
@@ -48,14 +49,34 @@ def get_data(model_name, tokenizer, image_processor, num_samples, device) -> Dat
         dataset = LazySupervisedDataset(tokenizer=tokenizer,
                                             data_path=data_args.data_path,
                                             data_args=data_args)
+        print(f"{num_samples} samples loaded")
+        collate_fn = Collate(tokenizer, model, device)
+    elif model_name == "OpenGVLab/Mini-InternVL-Chat-4B-V1-5":
+        sys.path.append(os.path.join(os.path.dirname(__file__), '../../VLM/InternVL/internvl_chat/internvl/train'))
+        from InternVL.internvl_chat.internvl.train.internvl_chat_finetune import DataTrainingArguments
+        from InternVL.internvl_chat.internvl.patch import concat_pad_data_collator
+        data_args = DataTrainingArguments()
+        data_args.meta_path = "/shared-local/aoq609/VLMCompression/VLM/InternVL/internvl_chat/shell/data/internvl_1_2_finetune_prune.json"
+        data_args.conv_style = "phi3-chat"
+        data_args.force_image_size = 448
+        data_args.pad2square = False
+        data_args.dynamic_image_size = True
+        data_args.use_thumbnail = True
+        data_args.max_dynamic_patch = 12
+        data_args.normalize_type = 'imagenet'
+        dataset = build_datasets(
+        data_args, tokenizer, tcs_loader=None, num_image_token=256, group_by_length=True,
+        dynamic_image_size=data_args.dynamic_image_size, use_thumbnail=data_args.use_thumbnail,
+        min_dynamic_patch=data_args.min_dynamic_patch, max_dynamic_patch=data_args.max_dynamic_patch,
+        normalize_type=data_args.normalize_type)
+        collate_fn = concat_pad_data_collator
         
     if num_samples is not None and num_samples > 0:
         total_samples = len(dataset)
         assert num_samples < total_samples
         indices = random.sample(range(total_samples), num_samples)
         dataset = Subset(dataset, indices)
-    print(f"{num_samples} samples loaded")
-    collate_fn = Collate(tokenizer, model, device)
+        
     print("loading dataloader")
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn, shuffle=True)
     print("dataloader loaded")
@@ -71,6 +92,17 @@ def get_model_tokenizer(model_name, device):
         tokenizer, model, image_processor, context_len = load_pruned_llava_model_all(model_name, device=device, torch_dtype=torch.float16)
         model.config.tokenizer_padding_side = tokenizer.padding_side
         model.config.tokenizer_model_max_length = tokenizer.model_max_length
+    elif model_name == "OpenGVLab/Mini-InternVL-Chat-4B-V1-5":
+        # Load model directly
+        from transformers import AutoTokenizer
+        from InternVL.internvl_chat.internvl.model.internvl_chat.modeling_internvl_chat import InternVLChatModel, InternVLChatConfig
+        from InternVL.internvl_chat.internvl.train.constants import IMG_CONTEXT_TOKEN
+        model = InternVLChatModel.from_pretrained(model_name, torch_dtype=torch.float16)
+        tokenizer = AutoTokenizer.from_pretrained(
+        model_name, add_eos_token=False, trust_remote_code=True, use_fast=True)
+        img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+        model.img_context_token_id = img_context_token_id
+        image_processor = None
     else:
         raise ValueError("Unknown model")
     
@@ -82,14 +114,15 @@ if __name__ == "__main__":
     if pwd.getpwuid(os.getuid())[0] == "aoq609":
         BUNNY_DATA_PATH = "/shared-network/Bunny-v1_0-data/finetune/"
         LLAVA_DATA_PATH = "/shared-network/llava/"
+        INTERN_DATA_PATH = '/shared-network/InternVL-Chat-V1-2-SFT-Data/data'
     elif pwd.getpwuid(os.getuid())[0] == "huang17":
         BUNNY_DATA_PATH = "/p/scratch/taco-vlm/datasets/Bunny-v1_0-data/finetune/"
         LLAVA_DATA_PATH = "/p/scratch/taco-vlm/datasets/llava/"
     parser = argparse.ArgumentParser(description='Layerwise Pruning')
     parser.add_argument('--seed', type=int, default=42, help='seed')
-    parser.add_argument('--model_name', type=str, default="BAAI/Bunny-v1_0-3B", help='base model name, or path to the model weights')
-    parser.add_argument('--device', type=str, default="cuda:2", help='device to run the model on')
-    parser.add_argument('--n_prune_layers', type=int, default=10, help='number of layers to prune')
+    parser.add_argument('--model_name', type=str, default="OpenGVLab/Mini-InternVL-Chat-4B-V1-5", help='base model name, or path to the model weights')
+    parser.add_argument('--device', type=str, default="cuda:0", help='device to run the model on')
+    parser.add_argument('--n_prune_layers', type=int, default=20, help='number of layers to prune')
     parser.add_argument('--num_examples', type=int, default=50, help='number of examples to load')
     parser.add_argument('--save_dir', type=str, default="/shared-local/aoq609/VLMCompression/ShortGPT/prune_log/", help='path to save the pruned model')
     args = parser.parse_args()
@@ -105,7 +138,7 @@ if __name__ == "__main__":
     set_random_seed(args.seed)
     model, tokenizer, image_processor = get_model_tokenizer(model_name=model_name, device=device)
     dataset, dataloader = get_data(model_name=model_name, tokenizer=tokenizer, image_processor=image_processor, num_samples=num_examples, device=device)
-    shortvlm = ShortVLM(model=model, tokenizer=tokenizer, layers_path='model.layers', n_prune_layers=n_prune_layers)
+    shortvlm = ShortVLM(model_name=model_name, model=model, tokenizer=tokenizer, layers_path='model.layers', n_prune_layers=n_prune_layers)
     shortvlm.eval_importance(dataloader=dataloader)
     n_layers = len(shortvlm.importances)
     log = {
@@ -122,7 +155,7 @@ if __name__ == "__main__":
     layers_removed = shortvlm.remove_layers()
     log['layers_removed'] = layers_removed
     log['number of parameters after pruning'] = sum(p.numel() for p in model.parameters())
-    print(model)
+    print(log)
     with open(log_save_path, "w") as f:
         json.dump(log, f, indent=4)
     torch.save({
