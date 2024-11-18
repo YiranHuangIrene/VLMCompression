@@ -12,9 +12,23 @@ from transformers import AutoTokenizer, AutoConfig, BitsAndBytesConfig, logging
 logging.set_verbosity_error()
 warnings.filterwarnings('ignore')
 
-def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
+def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda", load_8bit=False, load_4bit=False,  **kwargs):
+    if load_8bit:
+        kwargs['load_in_8bit'] = True
+    elif load_4bit:
+        kwargs['load_in_4bit'] = True
+        kwargs['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type='nf4'
+        )
+    else:
+        kwargs['torch_dtype'] = torch.float16
+        
     model_type = "phi-2"
-    kwargs = {"device_map": device_map, **kwargs}
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
     if model_type == 'phi-1.5' or model_type == 'phi-2':
@@ -42,6 +56,8 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
         # For LLM-Pruner, change the number of attn heads
         for layer in model.model.layers:
             layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
         # For shortGPT, change the number of layers
         for i, layer in enumerate(model.model.layers):
             layer.self_attn.layer_idx = i
@@ -80,9 +96,23 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     return tokenizer, model
 
 
-def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
+def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda", load_8bit=False, load_4bit=False,  **kwargs):
+    if load_8bit:
+        kwargs['load_in_8bit'] = True
+    elif load_4bit:
+        kwargs['load_in_4bit'] = True
+        kwargs['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type='nf4'
+        )
+    else:
+        kwargs['torch_dtype'] = torch.float16
+        
     model_type = "phi-2"
-    kwargs = {"device_map": device_map, **kwargs}
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
     
