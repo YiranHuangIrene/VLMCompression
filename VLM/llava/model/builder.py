@@ -24,7 +24,20 @@ import torch
 from .language_model.llava_llama import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
-def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map=None, device="cuda", use_flash_attn=False,  **kwargs):
+def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map=None, device="cuda", use_flash_attn=False,load_8bit=False, load_4bit=False, **kwargs):
+    if load_8bit:
+        kwargs['load_in_8bit'] = True
+    elif load_4bit:
+        kwargs['load_in_4bit'] = True
+        kwargs['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type='nf4'
+        )
+    else:
+        kwargs['torch_dtype'] = torch.float16
+        
     if device_map is not None:
         kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
@@ -41,6 +54,9 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lo
         model.model.layers = deepcopy(pruned_model['model'].model.layers)
         for layer in model.model.layers:
                 layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        # For shortGPT, change the number of layers
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
         del pruned_model
         torch.cuda.empty_cache()
         
@@ -75,7 +91,23 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lo
     return tokenizer, model
 
 
-def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=None, mm=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
+def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, mm=None, lora=None, device_map=None, device="cuda",use_flash_attn=False, load_8bit=False, load_4bit=False, **kwargs):
+    if not pruned_model_path:
+        if load_8bit:
+            kwargs['load_in_8bit'] = True
+        elif load_4bit:
+            kwargs['load_in_4bit'] = True
+            kwargs['quantization_config'] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type='nf4'
+            )
+        else:
+            kwargs['torch_dtype'] = torch.float16
+    else:
+        kwargs['torch_dtype'] = torch.float16
+        
     if device_map is not None:
         kwargs = {"device_map": device_map, **kwargs}
     if use_flash_attn:
@@ -83,15 +115,21 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=N
     tokenizer = AutoTokenizer.from_pretrained(llava_model_path, use_fast=False)
     model = LlavaLlamaForCausalLM.from_pretrained(
                         llava_model_path,
-                        low_cpu_mem_usage=False,
+                        low_cpu_mem_usage=True,
                         **kwargs
                     )
     if pruned_model_path is not None:
         print('Loading pruned model...')
-        pruned_model = torch.load(pruned_model_path, map_location='cpu')
-        model.model.layers = pruned_model['model'].model.layers
+        pruned_model= torch.load(pruned_model_path, map_location='cpu')
+        pruned_model = pruned_model['model']    
+        model.model.layers = pruned_model.model.layers
         for layer in model.model.layers:
-                layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+            layer.self_attn.num_heads = layer.self_attn.q_proj.weight.data.shape[0] // layer.self_attn.head_dim
+        # For shortGPT, change the number of layers
+        for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
+        del pruned_model
+        torch.cuda.empty_cache()
     if mm:
         mm_path = os.path.join(mm, "mm_projector.bin")
         mm_projector_weights = torch.load(mm_path, map_location='cpu')
@@ -123,18 +161,19 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, lora=N
     if not vision_tower.is_loaded:
         vision_tower.load_model(device_map=device_map)
     if device_map != 'auto':
-        vision_tower.to(device=device_map, dtype=torch.float16)
+        vision_tower.to(device=device, dtype=torch.float16)
     image_processor = vision_tower.image_processor
 
     if hasattr(model.config, "max_sequence_length"):
         context_len = model.config.max_sequence_length
     else:
         context_len = 2048
-        
-            
-    model = model.to(dtype=torch.float16)
-      
+    if pruned_model_path and load_8bit:
+        layers_weights = model.model.layers.state_dict()
+        quantize_model_8bit(model, layers_weights)
+    
     return tokenizer, model, image_processor, context_len
+      
 
 def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
     if device_map is not None:
@@ -186,7 +225,7 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
     model.half()
     return tokenizer, model, teacher_model
 
-def load_pretrained_model(model_path, model_base, model_name, prune=False, weights=None, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", use_flash_attn=False, **kwargs):
+def load_pretrained_model(model_path, model_base, model_name, prune=False, weights=None, load_8bit=False, load_4bit=False, device_map=None, device="cuda", use_flash_attn=False, **kwargs):
     kwargs = {"device_map": device_map, **kwargs}
 
     if device != "cuda":
@@ -336,6 +375,6 @@ def load_pretrained_model(model_path, model_base, model_name, prune=False, weigh
     else:
         context_len = 2048
 
-    model = model.to(dtype=torch.float16) # FIXME this is a temporary fix for the issue of the vision tower not being in fp16
+    # model = model.to(dtype=torch.float16) # FIXME this is a temporary fix for the issue of the vision tower not being in fp16
 
     return tokenizer, model, image_processor, context_len
