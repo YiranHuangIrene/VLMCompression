@@ -12,29 +12,30 @@ from transformers import AutoTokenizer, AutoConfig, BitsAndBytesConfig, logging
 logging.set_verbosity_error()
 warnings.filterwarnings('ignore')
 
-def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
+def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map=None, device="cuda",  **kwargs):
     model_type = "phi-2"
-    kwargs = {"device_map": device_map, **kwargs}
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
     if model_type == 'phi-1.5' or model_type == 'phi-2':
-        tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True, local_files_only=True)
+        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, local_files_only=True, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'phi-3':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'stablelm-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True, trust_remote_code=True)
-        model = BunnyStableLMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyStableLMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'qwen1.5-1.8b':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyQwen2ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyQwen2ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'minicpm':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyMiniCPMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyMiniCPMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'llama3-8b':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     if pruned_model_path:
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
@@ -80,30 +81,31 @@ def load_pruned_bunny_model(bunny_model_path, pruned_model_path=None, mm=None, l
     return tokenizer, model
 
 
-def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
+def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=None, lora=None, device_map=None, device="cuda",  **kwargs):
     model_type = "phi-2"
-    kwargs = {"device_map": device_map, **kwargs}
+    if device_map is not None and device_map != "":
+        kwargs = {"device_map": device_map, **kwargs}
     if device != "cuda":
         kwargs['device_map'] = {"": device}
     
     if model_type == 'phi-1.5' or model_type == 'phi-2':
-        tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True, local_files_only=True)
+        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, local_files_only=True, low_cpu_mem_usage=True, **kwargs)
     elif model_type == 'phi-3':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'stablelm-2':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True, trust_remote_code=True)
-        model = BunnyStableLMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyStableLMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'qwen1.5-1.8b':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyQwen2ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyQwen2ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'minicpm':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyMiniCPMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyMiniCPMForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     elif model_type == 'llama3-8b':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
-        model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=True, **kwargs)
+        model = BunnyLlamaForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)
     if pruned_model_path:
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
@@ -160,12 +162,14 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
     print(f"Number of parameters in the model: {model.num_parameters()}")
     return tokenizer, model, image_processor, context_len
 
-def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map="", device="cuda",  **kwargs):
+def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map=None, device="cuda",  **kwargs):
     # Load teacher model
     _, teacher_model = load_pruned_bunny_model(teacher_model_path)
     # Load student model and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=True)
-    model = BunnyDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, **kwargs)
+    if device_map is not None:
+        kwargs = {"device_map": device_map, **kwargs}
+    tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=True, local_files_only=True)
+    model = BunnyDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, local_files_only=True, **kwargs)
     if pruned_model_path:
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')

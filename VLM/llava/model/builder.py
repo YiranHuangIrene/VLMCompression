@@ -33,6 +33,7 @@ def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lo
     model = LlavaLlamaForCausalLM.from_pretrained(
                         llava_model_path,
                         low_cpu_mem_usage=False,
+                        local_files_only=True,
                         **kwargs
                     )
     if pruned_model_path:
@@ -84,6 +85,7 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, mm=Non
     model = LlavaLlamaForCausalLM.from_pretrained(
                         llava_model_path,
                         low_cpu_mem_usage=False,
+                        local_files_only=True,
                         **kwargs
                     )
     if pruned_model_path is not None:
@@ -142,7 +144,7 @@ def load_distillation_model(teacher_model_path, student_model_path, pruned_model
     _, teacher_model = load_pruned_llava_model(teacher_model_path,use_flash_attn=use_flash_attn,**kwargs)
     # Load student model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(student_model_path, use_fast=False)
-    model = LlavaDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, **kwargs)
+    model = LlavaDistillationModel.from_pretrained(student_model_path, low_cpu_mem_usage=False, local_files_only=True, **kwargs)
     if pruned_model_path:
         print("loading pruned model")
         pruned_model = torch.load(pruned_model_path, map_location='cpu')
