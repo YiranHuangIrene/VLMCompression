@@ -23,6 +23,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAn
 import torch
 from .language_model.llava_llama import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+from typing import List, Optional, Mapping, Any
 
 def load_pruned_llava_model(llava_model_path, pruned_model_path=None, mm=None,lora=None, device_map=None, device="cuda", use_flash_attn=False,load_8bit=False, load_4bit=False, **kwargs):
     if load_8bit:
@@ -173,7 +174,30 @@ def load_pruned_llava_model_all(llava_model_path, pruned_model_path=None, mm=Non
         quantize_model_8bit(model, layers_weights)
     
     return tokenizer, model, image_processor, context_len
-      
+def quantize_model_8bit(model,weights):
+    def convert_to_8bit(module, exclude=[]):
+        from bitsandbytes.nn import Linear8bitLt
+        import torch.nn as nn
+        for name, child in module.named_children():
+            # Skip excluded layers
+            if name in exclude:
+                continue
+            # If the child is an nn.Linear, replace it with Linear8bitLt
+            if isinstance(child, nn.Linear):
+                in_features, out_features, bias = child.in_features, child.out_features, child.bias is not None
+                setattr(module, name, Linear8bitLt(in_features, out_features, bias=bias, has_fp16_weights=False))
+
+            # Recursively apply to child modules
+            else:
+                convert_to_8bit(child, exclude)
+        return module
+    exclude_layers = ['lm_head']  # List of layer names to exclude from conversion
+    # Convert the model to 8-bit
+    print("Converting model to 8-bit...")
+    model.model.layers = convert_to_8bit(model.model.layers, exclude=exclude_layers)
+    print("Loading 8-bit weights...")
+    model.model.layers.load_state_dict(weights)
+
 
 def load_distillation_model(teacher_model_path, student_model_path, pruned_model_path, mm=None, lora=None, device_map=None, device="cuda",use_flash_attn=False,  **kwargs):
     if device_map is not None:
