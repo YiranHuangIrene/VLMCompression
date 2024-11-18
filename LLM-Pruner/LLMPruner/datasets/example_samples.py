@@ -72,7 +72,7 @@ def get_alpaca(tokenizer, n_samples, seq_len):
 def get_bunny(tokenizer, n_samples, seq_len, batch=False):
     from bunny.util.data_utils import LazySupervisedDataset, DataArguments
     from bunny.model.builder import load_pruned_bunny_model_all
-    tokenizer,model,image_processor,_ = load_pruned_bunny_model_all("BAAI/Bunny-v1_0-3B")
+    tokenizer,model,image_processor,_ = load_pruned_bunny_model_all("BAAI/Bunny-v1_0-3B",torch_dtype=torch.float16)
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
     data_args = DataArguments()
@@ -152,7 +152,7 @@ def get_bunny(tokenizer, n_samples, seq_len, batch=False):
             batch['images'] = torch.stack(images).half().to('cuda')
         else:
             batch['images'] = images.half().to('cuda')
-        _, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels= model.prepare_inputs_labels_for_multimodal(position_ids=None,past_key_values=None,**batch) 
+        _, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels= model.to("cuda").prepare_inputs_labels_for_multimodal(position_ids=None,past_key_values=None,**batch) 
         embeds = new_input_embeds
         labels = new_labels
         del model
@@ -164,7 +164,7 @@ def get_bunny(tokenizer, n_samples, seq_len, batch=False):
 def get_llava(tokenizer, n_samples, seq_len, batch):
     from llava.train.train_pruned import LazySupervisedDataset, DataArguments
     from llava.model.builder import load_pruned_llava_model_all
-    tokenizer,model,image_processor,_ = load_pruned_llava_model_all("liuhaotian/llava-v1.5-7b")
+    tokenizer,model,image_processor,_ = load_pruned_llava_model_all("liuhaotian/llava-v1.5-7b",torch_dtype=torch.float16)
     tokenizer.pad_token = tokenizer.unk_token
 
     data_args = DataArguments()
@@ -238,15 +238,15 @@ def get_llava(tokenizer, n_samples, seq_len, batch):
 
         input_ids = input_ids[:tokenizer.model_max_length]
         batch = dict(
-            input_ids=input_ids,
-            labels=labels,
+            input_ids=input_ids.to("cuda"),
+            labels=labels.to("cuda"),
             attention_mask=attention_mask
         )
         if all(x is not None and x.shape == images[0].shape for x in images):
-            batch['images'] = torch.stack(images).half()
+            batch['images'] = torch.stack(images).half().to("cuda")
         else:
-            batch['images'] = images.half()
-        _, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels= model.prepare_inputs_labels_for_multimodal(position_ids=None,past_key_values=None,**batch) 
+            batch['images'] = images.half().to("cuda")
+        _, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels= model.to("cuda").prepare_inputs_labels_for_multimodal(position_ids=None,past_key_values=None,**batch) 
         embeds = new_input_embeds.detach()
         labels = new_labels
         del model

@@ -25,3 +25,5 @@ TransformerCompression/
 /ShortGPT/prune_log/
 LLM-Pruner/bunny_short+pruner.sh
 LLM-Pruner/llava_short+pruner.sh
+VLM/llava/checkpoints/
+VLM/quantization/quantized_model.pth

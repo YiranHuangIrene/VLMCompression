@@ -11,12 +11,17 @@ from metrics import *
 
 class ShortVLM():
 
-    def __init__(self, model, tokenizer, layers_path: str, n_prune_layers: Optional[int] = None):
+    def __init__(self, model_name, model, tokenizer, layers_path: str, n_prune_layers: Optional[int] = None, device = "cuda"):
+        self.model_name = model_name
         self.model = model
         self.tokenizer = tokenizer
-        self.layers = self.model.model.layers
+        try:
+            self.layers = self.model.model.layers
+        except AttributeError:
+            self.layers = self.model.language_model.model.layers
         self.n_prune_layers = n_prune_layers
         self.importances = [0 for _ in self.layers]  # layer-wise importance scores
+        self.device = device
 
     def remove_layers(
         self,
@@ -58,20 +63,39 @@ class ShortVLM():
         self,
         dataloader: torch.utils.data.DataLoader
     ):
-        for batch in tqdm(dataloader):
-            input_ids = batch["input_ids"]
-            labels = batch["labels"]
-            attn_mask = batch["attention_mask"]
-            images = batch['images']
+        if self.model_name == "OpenGVLab/Mini-InternVL-Chat-4B-V1-5":
+            for batch in tqdm(dataloader):
+                pixel_values = batch["pixel_values"].half()
+                input_ids = batch["input_ids"]
+                labels = batch["labels"]
+                image_flags = batch["image_flags"]
+                position_ids = batch["position_ids"]
+                attn_mask = batch["attention_mask"]
+                outputs = self.model(
+                    pixel_values=pixel_values.to(self.device),
+                    input_ids=input_ids.to(self.device),
+                    attention_mask=attn_mask.to(self.device),
+                    labels=labels.to(self.device),
+                    image_flags=image_flags.to(self.device),
+                    position_ids=position_ids.to(self.device),
+                    output_hidden_states=True,
+                )
+                self.compute_bi(outputs.hidden_states)
+        else:
+            for batch in tqdm(dataloader):
+                input_ids = batch["input_ids"]
+                labels = batch["labels"]
+                attn_mask = batch["attention_mask"]
+                images = batch['images']
 
-            outputs = self.model(
-                input_ids=input_ids,
-                attention_mask=attn_mask,
-                labels=labels,
-                images=images,
-                output_hidden_states=True,
-            )
-            self.compute_bi(outputs.hidden_states)
+                outputs = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attn_mask,
+                    labels=labels,
+                    images=images,
+                    output_hidden_states=True,
+                )
+                self.compute_bi(outputs.hidden_states)
 
         return
     
