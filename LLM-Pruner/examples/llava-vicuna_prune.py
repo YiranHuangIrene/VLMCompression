@@ -11,6 +11,8 @@ import copy
 import random
 import argparse
 from typing import Tuple
+from accelerate import Accelerator,hooks
+
 
 import torch
 import numpy as np
@@ -35,15 +37,19 @@ def set_random_seed(seed):
 def main(args):
     set_random_seed(args.seed)
 
-    if args.pruned_model_path: 
-        org_pruning_ratio = "-".join(args.pruned_model_path.split("/")[-2].split("_")[2:-1])
-        log_name = "{}_{}-{}_{}".format(args.base_model.split("/")[-1], org_pruning_ratio, args.pruning_ratio, args.dataset)
+    if args.short:
+        org_pruning_layer = args.pruned_model_path.split("/")[-2].split("_")[-3]
+        log_name = "{}_short_{}-{}_{}".format(args.base_model.split("/")[-1], org_pruning_layer, args.pruning_ratio, args.dataset)
     else:
-        log_name = "{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset)
-    if args.iterative_steps > 1:
-        log_name += "_iter_{}".format(args.iterative_steps)
-    if args.num_examples != 10:
-        log_name += "_{}_samples".format(args.num_examples)
+        if args.pruned_model_path: 
+            org_pruning_ratio = "-".join(args.pruned_model_path.split("/")[-2].split("_")[2:-1])
+            log_name = "{}_{}-{}_{}".format(args.base_model.split("/")[-1], org_pruning_ratio, args.pruning_ratio, args.dataset)
+        else:
+            log_name = "{}_{}_{}".format(args.base_model.split("/")[-1], args.pruning_ratio,args.dataset)
+        if args.iterative_steps > 1:
+            log_name += "_iter_{}".format(args.iterative_steps)
+        if args.num_examples != 10:
+            log_name += "_{}_samples".format(args.num_examples)
     # if args.seq_len_prune:
     #     log_name += "_seq_{}".format(args.seq_len_prune)
     logger = LoggerWithDepth(
@@ -59,16 +65,30 @@ def main(args):
         low_cpu_mem_usage=True if args.torch_version >=1.9 else False,
         device_map="auto"
     )
-    if args.pruned_model_path:
-        _, model_lora = load_pruned_llava_model(args.base_model,args.pruned_model_path,lora=args.lora)
-        model.model.embed_tokens = model_lora.model.embed_tokens
-        model.model.embed_dropout = model_lora.model.embed_dropout
-        model.model.layers = model_lora.model.layers
-        model.lm_head = model_lora.lm_head
+    if args.short:
+        if  org_pruning_layer == "10":
+            pruned_layer = [27, 28, 25, 29, 26, 23, 24, 21, 22, 30]
+        elif org_pruning_layer == "5":
+            pruned_layer = [[27, 28, 25, 29, 26]
+        _, model_lora = load_pruned_llava_model(args.base_model,args.pruned_model_path,lora=args.lora,torch_dtype=torch.float16)
+        for layer_idx in sorted(pruned_layer, reverse=True):
+            try:
+                del model.model.layers[layer_idx]
+            except IndexError:
+                print(f"layer {layer_idx} does not exist, function may have already been called")
+                return []
+        state_dict_model = model_lora.model.state_dict()
+        state_dict_lm_head = model_lora.lm_head.state_dict()
+        model.model.load_state_dict(state_dict_model, strict=False)
+        model.lm_head.load_state_dict(state_dict_lm_head, strict=True)
+        for i in range(len(model.model.layers)):
+            model.model.layers[i].self_attn.rotary_emb.cos_cached.data = model_lora.model.layers[i].self_attn.rotary_emb.cos_cached.data.to(model.model.layers[i].self_attn.rotary_emb.inv_freq.device)
+            model.model.layers[i].self_attn.rotary_emb.sin_cached.data = model_lora.model.layers[i].self_attn.rotary_emb.sin_cached.data.to(model.model.layers[i].self_attn.rotary_emb.inv_freq.device)
 
-    if args.device != "cpu":
-        model.half() 
-    # model.to(args.device)
+    for i, layer in enumerate(model.model.layers):
+            layer.self_attn.layer_idx = i
+    model.half() 
+
 
     if args.test_before_train:
         logger.log("\n==================Generation Results before Pruning================\n")
@@ -301,10 +321,9 @@ def main(args):
     logger.log("Memory Requirement: {} MiB\n".format(torch.cuda.memory_allocated()/1024/1024))
     
     print(model)
-    import accelerate
     for n,m in model.named_modules():
         if hasattr(m,"_hf_hook"):
-            accelerate.hooks.remove_hook_from_module(m)
+            hooks.remove_hook_from_module(m)
         m.to = torch.nn.Module.to
         m.cuda = torch.nn.Module.cuda
     if args.save_model:
@@ -319,10 +338,11 @@ if __name__ == "__main__":
 
     # argument for parsing
     parser.add_argument('--base_model', type=str, default="liuhaotian/llava-v1.5-7b", help='base model name, or path to the model weights')
+    parser.add_argument('--short', action='store_false', help='whether to use the model pruned by shortGPT')
     parser.add_argument('--lora', type=str, default=None, help='path to LoRA model weights')
-    parser.add_argument('--pruned_model_path', type=str, default=None)
+    parser.add_argument('--pruned_model_path', default='/shared-local/aoq609/VLMCompression/ShortGPT/prune_log/llava-v1.5-7b_pruned_10_50_samples/pruned_model.bin')
     parser.add_argument('--save_ckpt_log_name', type=str, default="llama_prune", help='the path for save the checkpoint and the log. The final path would be log/{your_name_here}_{pruner_type}_{pruning_ratio}')
-    parser.add_argument('--pruning_ratio', type=float, default=0.8, help='pruning ratio')
+    parser.add_argument('--pruning_ratio', type=float, default=0.3, help='pruning ratio')
     parser.add_argument('--pruner_type', type=str, default='taylor', help='pruner type')
     parser.add_argument('--dataset', type=str, default='llava', help='dataset for importance calculation: alpaca, bookcorpus, c4, llava')
     parser.add_argument('--seq_len_prune', type=int, default=128, help='sequence length for pruning')
@@ -339,15 +359,15 @@ if __name__ == "__main__":
     parser.add_argument('--layer', type=int, default=12, help='remain the previous n layers')
 
     parser.add_argument('--block_attention_layer_start', type=int, help='start layer of block attention layers', default=3)
-    parser.add_argument('--block_attention_layer_end', type=int, help='end layer of block attention layers', default=31)
-    parser.add_argument('--block_mlp_layer_start', type=int, help='start layer of block mlp layers', default=4)
-    parser.add_argument('--block_mlp_layer_end', type=int, help='end layer of block mlp layers', default=30)
+    parser.add_argument('--block_attention_layer_end', type=int, help='end layer of block attention layers', default=21)
+    parser.add_argument('--block_mlp_layer_start', type=int, help='start layer of block mlp layers', default=3)
+    parser.add_argument('--block_mlp_layer_end', type=int, help='end layer of block mlp layers', default=20)
 
     parser.add_argument('--iterative_steps', type=int, default=1, help="Iteration step for pruning. Default=1")
     parser.add_argument('--grouping_strategy', type=str, default='sum', help='Reduce method for grouping')
     parser.add_argument('--global_pruning', action='store_true', help='whether global pruning')
     parser.add_argument('--taylor', type=str, default='param_first', help='choose from [vectorize, param_second, param_first, param_mix]')
-    parser.add_argument('--num_examples', type=int, default=20)
+    parser.add_argument('--num_examples', type=int, default=10)
 
     # general argument
     parser.add_argument('--device', type=str, default="cuda", help='device')
