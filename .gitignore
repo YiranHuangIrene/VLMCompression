@@ -27,3 +27,7 @@ LLM-Pruner/bunny_short+pruner.sh
 LLM-Pruner/llava_short+pruner.sh
 VLM/llava/checkpoints/
 VLM/quantization/quantized_model.pth
+lmms_eval_back/
+lmms_eval_new/
+VLM/InternVL/internvl_chat/ckpt
+VLM/InternVL/internvl_chat/ckpt/

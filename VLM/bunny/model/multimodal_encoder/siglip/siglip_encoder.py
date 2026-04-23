@@ -20,9 +20,9 @@ class SiglipVisionTower(nn.Module):
             self.cfg_only = SiglipVisionConfig.from_pretrained(self.vision_tower_name)
 
     def load_model(self):
-        self.image_processor = SiglipImageProcessor.from_pretrained(self.vision_tower_name)
+        self.image_processor = SiglipImageProcessor.from_pretrained("/p/scratch/taco-vlm/HF_HOME/hub/models--google--siglip-so400m-patch14-384/snapshots/9fdffc58afc957d1a03a25b10dba0329ab15c2a3")
         self.image_processor.crop_size = self.image_processor.size
-        self.vision_tower = SiglipVisionModel.from_pretrained(self.vision_tower_name)
+        self.vision_tower = SiglipVisionModel.from_pretrained("/p/scratch/taco-vlm/HF_HOME/hub/models--google--siglip-so400m-patch14-384/snapshots/9fdffc58afc957d1a03a25b10dba0329ab15c2a3")
         self.vision_tower.requires_grad_(False)
 
         self.is_loaded = True

@@ -117,8 +117,12 @@ def load_pruned_bunny_model_all(bunny_model_path, pruned_model_path=None, mm=Non
         kwargs['device_map'] = {"": device}
     
     if model_type == 'phi-1.5' or model_type == 'phi-2':
-        tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True, local_files_only=True)
-        model = BunnyPhiForCausalLM.from_pretrained(bunny_model_path, local_files_only=True, low_cpu_mem_usage=True, **kwargs)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained("/p/scratch/taco-vlm/HF_HOME/hub/models--BAAI--Bunny-v1_0-3B/snapshots/e2c3ee8e0376707c4abcf7a6fce8c72b72dc5757", use_fast=True, local_files_only=True, trust_remote_code=True)
+        except Exception as e:
+            from transformers import CodeGenTokenizerFast
+            tokenizer = CodeGenTokenizerFast.from_pretrained("/p/scratch/taco-vlm/HF_HOME/hub/models--BAAI--Bunny-v1_0-3B/snapshots/e2c3ee8e0376707c4abcf7a6fce8c72b72dc5757", use_fast=True, local_files_only=True, trust_remote_code=True)
+        model = BunnyPhiForCausalLM.from_pretrained("/p/scratch/taco-vlm/HF_HOME/hub/models--BAAI--Bunny-v1_0-3B/snapshots/e2c3ee8e0376707c4abcf7a6fce8c72b72dc5757", local_files_only=True, low_cpu_mem_usage=True, trust_remote_code=True, **kwargs)
     elif model_type == 'phi-3':
         tokenizer = AutoTokenizer.from_pretrained(bunny_model_path, use_fast=True)
         model = BunnyPhi3ForCausalLM.from_pretrained(bunny_model_path, low_cpu_mem_usage=False, **kwargs)

@@ -1,0 +1,9 @@
+{
+  "chartqa_train_18k": {
+    "root": "/p/scratch/taco-vlm/datasets/InternVL-Chat-V1-2-SFT-Data/data/chartqa/",
+    "annotation": "/p/scratch/taco-vlm/datasets/InternVL-Chat-V1-2-SFT-Data/opensource/chartqa_train_18k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 18317
+  }
+}
