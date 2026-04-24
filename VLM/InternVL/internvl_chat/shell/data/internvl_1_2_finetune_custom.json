@@ -1,0 +1,58 @@
+{
+  "sharegpt4v_instruct_gpt4-vision_cap100k": {
+    "root": "<INTERN_DATA_ROOT>/data/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/sharegpt4v_instruct_gpt4-vision_cap100k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 102025
+  },
+  "sharegpt4v_mix665k_cap23k_coco-ap9k_lcs3k_sam9k_div2k": {
+    "root": "<INTERN_DATA_ROOT>/data/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/sharegpt4v_mix665k_cap23k_coco-ap9k_lcs3k_sam9k_div2k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 665058
+  },
+  "dvqa_train_200k": {
+    "root": "<INTERN_DATA_ROOT>/data/dvqa/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/dvqa_train_200k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 200000
+  },
+  "chartqa_train_18k": {
+    "root": "<INTERN_DATA_ROOT>/data/chartqa/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/chartqa_train_18k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 18317
+  },
+  "ai2d_train_12k": {
+    "root": "<INTERN_DATA_ROOT>/data/ai2d/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/ai2d_train_12k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 12413
+  },
+  "docvqa_train_10k": {
+    "root": "<INTERN_DATA_ROOT>/data/docvqa/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/docvqa_train_10k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 10211
+  },
+  "geoqa+": {
+    "root": "<INTERN_DATA_ROOT>/data/geoqa+/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/geoqa+.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 72318
+  },
+  "synthdog_en": {
+    "root": "<INTERN_DATA_ROOT>/data/synthdog-en/",
+    "annotation": "<INTERN_DATA_ROOT>/opensource/synthdog_en.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 29765
+  }
+}

@@ -1,0 +1,57 @@
+# Unified requirements for VLMCompression.
+#
+# This file is the union of LLM-Pruner/requirement.txt, VLM/InternVL/requirements.txt,
+# and the packages the README recommends. Some transitive constraints (e.g. timm,
+# tokenizers) come from the InternVL fork and are required by that training stack
+# only. For finer-grained installs, see the per-subdir requirement files.
+
+# Core deep-learning
+torch>=2.0
+torchvision>=0.15
+transformers==4.37.2
+tokenizers==0.15.1
+accelerate==0.28.0
+peft>=0.4.0
+bitsandbytes==0.41.0
+deepspeed==0.14.4
+sentencepiece==0.1.99
+datasets
+huggingface_hub
+
+# Pruning / evaluation
+ptflops
+rouge-score>=0.0.4
+sacrebleu==1.5.0
+scikit-learn>=1.2.2
+jsonlines
+numexpr
+sqlitedict
+importlib-resources
+pycountry
+omegaconf
+pytablewriter
+
+# Vision / multimodal
+timm==0.9.12
+einops==0.6.1
+einops-exts==0.0.4
+opencv-python
+decord
+imageio
+Pillow
+
+# Utilities
+pyyaml
+orjson
+shortuuid
+termcolor
+yacs
+wandb
+tensorboardX
+gradio
+tqdm
+scipy
+numpy
+
+# Eval-only extras
+pycocoevalcap

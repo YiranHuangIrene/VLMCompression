@@ -1,0 +1,35 @@
+VLMCompression
+Copyright 2024 Yiran Huang and the VLMCompression contributors.
+
+This product includes software developed as part of the paper:
+  "Investigating Structural Pruning and Recovery Techniques for Compressing
+   Multimodal Large Language Models: An Empirical Study"
+  (arXiv:2507.20749)
+
+This product bundles modified forks of the following projects, each of
+which retains its own LICENSE file in its subdirectory:
+
+* LLM-Pruner (LLM-Pruner/)
+    Copyright (c) 2023 Xinyin Ma and horseee
+    https://github.com/horseee/LLM-Pruner
+    Licensed under the Apache License, Version 2.0.
+
+* ShortGPT (ShortGPT/)
+    Copyright (c) 2024 sramshetty
+    https://github.com/sramshetty/ShortGPT
+    Licensed under the Apache License, Version 2.0.
+
+* LLaVA (VLM/llava/)
+    Copyright (c) 2023 Haotian Liu and contributors
+    https://github.com/haotian-liu/LLaVA
+    Licensed under the Apache License, Version 2.0.
+
+* Bunny (VLM/bunny/)
+    Copyright (c) 2024 BAAI-DCAI
+    https://github.com/BAAI-DCAI/Bunny
+    Licensed under the Apache License, Version 2.0.
+
+* InternVL (VLM/InternVL/)
+    Copyright (c) 2024 OpenGVLab
+    https://github.com/OpenGVLab/InternVL
+    Licensed under the MIT License.
