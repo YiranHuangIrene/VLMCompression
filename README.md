@@ -1,7 +1,8 @@
-# VLMCompression
+# MLLM-Compression (IJCV 2026 & GCPR 2025 Oral)
 
-Code for the paper **"Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study"**
-Yiran Huang, Lukas Thede, Massimiliano Mancini, Wenjia Xu, Zeynep Akata.
+Official implementation of the paper: **Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study**, accepted at IJCV 2026 (Extended Version) and GCPR 2025 (Oral Presentation).
+
+[Authors:Yiran Huang, Lukas Thede, Massimiliano Mancini, Wenjia Xu, Zeynep Akata.]
 [arXiv:2507.20749](https://arxiv.org/abs/2507.20749)
 
 We study structural pruning of the **language backbone** of multimodal LLMs and how to recover the lost performance cheaply:
@@ -188,11 +189,13 @@ This repository is released under the Apache License 2.0 (see `LICENSE`). It bun
 ## Citation
 
 ```bibtex
-@article{huang2025investigating,
-  title   = {Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study},
-  author  = {Huang, Yiran and Thede, Lukas and Mancini, Massimiliano and Xu, Wenjia and Akata, Zeynep},
-  journal = {arXiv preprint arXiv:2507.20749},
-  year    = {2025}
+@inproceedings{huang2025investigating,
+  title={Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study},
+  author={Huang, Yiran and Thede, Lukas and Mancini, Massimiliano and Xu, Wenjia and Akata, Zeynep},
+  booktitle={DAGM German Conference on Pattern Recognition},
+  pages={320--336},
+  year={2025},
+  organization={Springer}
 }
 ```
 
