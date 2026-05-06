@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Structural Pruning of Large Vision Language Models</title>
+  <meta name="description" content="Structural Pruning of Large Vision Language Models: A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency. IJCV 2026 / GCPR 2025 Oral.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════ Hero ═══════════════════ -->
+<section class="hero-section">
+  <div class="container">
+    <div class="venue-badges">
+      <span class="badge badge-blue">IJCV 2026</span>
+      <span class="badge badge-purple">GCPR 2025 &middot; Oral</span>
+    </div>
+
+    <h1>Structural Pruning of Large Vision Language Models:<br>A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency</h1>
+
+    <div class="authors">
+      <span class="author"><a href="https://yiranhuangirene.github.io/" target="_blank">Yiran Huang</a><sup>1,2,3</sup></span>
+      <span class="author">Lukas Thede<sup>2,4</sup></span>
+      <span class="author"><a href="https://mancinimassimiliano.github.io/" target="_blank">Massimiliano Mancini</a><sup>5</sup></span>
+      <span class="author">Wenjia Xu<sup>6</sup></span>
+      <span class="author"><a href="https://www.eml-unitue.de/people/zeynep-akata" target="_blank">Zeynep Akata</a><sup>1,2,3</sup></span>
+    </div>
+
+    <div class="affiliations">
+      <sup>1</sup>Technical University of Munich &nbsp;&nbsp;
+      <sup>2</sup>Munich Center for Machine Learning &nbsp;&nbsp;
+      <sup>3</sup>Helmholtz Munich<br>
+      <sup>4</sup>University of T&uuml;bingen, T&uuml;bingen AI Center &nbsp;&nbsp;
+      <sup>5</sup>University of Trento &nbsp;&nbsp;
+      <sup>6</sup>Beijing University of Posts and Telecommunications
+    </div>
+
+    <div class="action-buttons">
+      <a href="https://arxiv.org/abs/2604.24380" class="btn btn-dark" target="_blank">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Paper
+      </a>
+      <a href="https://github.com/YiranHuangIrene/VLMCompression" class="btn btn-outline" target="_blank">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        Code
+      </a>
+      <button class="btn btn-outline" onclick="document.getElementById('citation').scrollIntoView({behavior:'smooth'})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        BibTeX
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ Teaser Figure ═══════════════════ -->
+<section class="teaser">
+  <div class="container">
+    <img src="static/images/figure1.png" alt="Compression decision flow for LVLMs: decision flowchart and spider plots showing retained performance across benchmarks at various compression levels.">
+    <figcaption><strong>Figure 1:</strong> Compression decision flow for LVLMs. The left panel presents a decision flowchart guiding the choice of pruning and recovery strategy based on resource availability. The right panel shows spider plots of retained performance across multimodal benchmarks.</figcaption>
+  </div>
+</section>
+
+<hr class="divider">
+<!-- ═══════════════════ Abstract ═══════════════════ -->
+<section id="abstract">
+  <div class="container">
+    <h2 class="section-title">Abstract</h2>
+    <p class="abstract-text">
+      While Large Vision Language Models (LVLMs) demonstrate impressive capabilities, their substantial computational and memory requirements pose deployment challenges on resource-constrained edge devices. Current parameter reduction techniques primarily involve training LVLMs from small language models, but these methods offer limited flexibility and remain computationally intensive. We study a complementary route: compressing existing LVLMs by applying structured pruning to the language model backbone, followed by lightweight recovery training. Specifically, we investigate two structural pruning paradigms: layerwise and widthwise pruning, and pair them with supervised finetuning and knowledge distillation on logits and hidden states. Additionally, we assess the feasibility of conducting recovery training with only a small fraction of the available data. Our results show that widthwise pruning generally maintains better performance in low-resource scenarios, where computational resources are limited or there is insufficient finetuning data. As for the recovery training, finetuning only the multimodal projector is sufficient at small compression levels. Furthermore, a combination of supervised finetuning and hidden-state distillation yields optimal recovery across various pruning levels. Notably, effective recovery can be achieved using just 5% of the original data, while retaining over 95% of the original performance.
+    </p>
+  </div>
+</section>
+
+
+<!-- ═══════════════════ 1. Method ═══════════════════ -->
+<section id="method">
+  <div class="container">
+    <h2 class="section-title">Method</h2>
+
+    <!-- Models Evaluated -->
+    <h3 class="section-subtitle">Models Evaluated</h3>
+    <p style="color: var(--color-text-light); margin-bottom: 1.5rem; text-align: left; max-width: 950px; margin-left: 0; margin-right: 0;">
+      We study three representative LVLM families spanning 3B&ndash;7B parameters. Across all architectures, the <strong>LLM decoder accounts for over 85% of total parameters</strong>, making it the natural target for compression.
+    </p>
+    <div class="table-wrapper">
+      <table class="model-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>LLaVA-v1.5-7B</th>
+            <th>Mini-InternVL-Chat-4B</th>
+            <th>Bunny-v1.0-3B</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="spec-label">Total Params</td>
+            <td>7.0B</td>
+            <td>4.1B</td>
+            <td>3.2B</td>
+          </tr>
+          <tr>
+            <td class="spec-label">Vision Encoder</td>
+            <td>CLIP-ViT-L (0.3B)</td>
+            <td>InternViT-300M (0.3B)</td>
+            <td>SigLIP-SO (0.4B)</td>
+          </tr>
+          <tr>
+            <td class="spec-label">Projector</td>
+            <td>MLP 2&times;-GeLU (19M)</td>
+            <td>MLP 2&times;-GeLU (25M)</td>
+            <td>MLP 2&times;-GeLU (18M)</td>
+          </tr>
+          <tr class="highlight-row">
+            <td class="spec-label">LLM Decoder</td>
+            <td>Vicuna-v1.5 (<strong>6.7B &middot; 96%</strong>)</td>
+            <td>Phi-3-mini (<strong>3.8B &middot; 93%</strong>)</td>
+            <td>Phi-2 (<strong>2.8B &middot; 88%</strong>)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Research Question -->
+    <div class="research-question">
+      <p style="text-align: left; max-width: 1000px; margin-left: 0; margin-right: 0;"></p>
+      Given that the LLM backbone overwhelmingly dominates the parameter budget, a natural question arises: <strong>How does structurally pruning the LLM backbone affect LVLM performance, and what are the best practices for pruning and recovering multimodal capabilities?</strong></p>
+    </div>
+
+    <!-- Pruning Paradigms -->
+    <h3 class="section-subtitle">Pruning Paradigms</h3>
+    <div class="pruning-columns">
+      <div class="pruning-col">
+        <div class="demo-box">
+          <div class="layer-stack">
+            <div class="layer-block kept">Layer 4</div>
+            <div class="layer-block pruned">Layer 3 <span class="prune-x">&times;</span></div>
+            <div class="layer-block kept">Layer 2</div>
+            <div class="layer-block pruned">Layer 1 <span class="prune-x">&times;</span></div>
+          </div>
+        </div>
+        <div class="pruning-text">
+          <dt>Layerwise Pruning</dt>
+          <dd>Remove entire transformer blocks ranked by <strong>Block Influence</strong> (cosine distance between input/output hidden states).</dd>
+        </div>
+      </div>
+      <div class="pruning-col">
+        <div class="demo-box">
+          <div class="width-demo">
+            <div class="width-row">
+              <span class="head kept-h">H1</span>
+              <span class="head pruned-h">H2</span>
+              <span class="head kept-h">H3</span>
+              <span class="head pruned-h">H4</span>
+              <span class="head kept-h">H5</span>
+              <span class="head pruned-h">H6</span>
+              <span class="width-label">Attn Heads</span>
+            </div>
+            <div class="width-row">
+              <div class="mlp-bar">
+                <span class="mlp-kept"></span>
+                <span class="mlp-pruned"></span>
+              </div>
+              <span class="width-label">MLP Neurons</span>
+            </div>
+          </div>
+        </div>
+        <div class="pruning-text">
+          <dt>Widthwise Pruning</dt>
+          <dd>Remove attention heads &amp; MLP neurons ranked by <strong>Taylor importance</strong> over coupled dependency groups.</dd>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recovery Strategies -->
+    <h3 class="section-subtitle">Recovery Training Strategies</h3>
+    <dl class="recovery-dl">
+      <div class="recovery-entry">
+        <dt>SFT</dt>
+        <dd>Cross-entropy finetuning on instruction data (projector-only or projector + LLM with LoRA).</dd>
+      </div>
+      <div class="recovery-entry">
+        <dt>Logits KD</dt>
+        <dd>KL-divergence alignment of student and teacher output distributions at temperature &tau;=2.</dd>
+      </div>
+      <div class="recovery-entry">
+        <dt>Hidden-State KD <span class="best-tag">Best</span></dt>
+        <dd>L2 loss on final-layer hidden states between teacher and pruned student.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════════ 3. Results ═══════════════════ -->
+<section id="results">
+  <div class="container">
+    <h2 class="section-title">Results</h2>
+
+    <!-- Table 2: Pruning results -->
+    <h3 class="section-subtitle">Pruning Results (Zero-Shot, No Recovery)</h3>
+    <p class="table-caption">
+      Widthwise pruning generally results in better zero-shot performance compared to layerwise pruning across all three models and nine benchmarks.
+    </p>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th><th>Size</th><th>Ratio</th><th>MMMU</th><th>SQA</th><th>MathV</th><th>AI2D</th><th>MME-C</th><th>MME-P</th><th>POPE</th><th>DocVQA</th><th>GQA</th><th>AVG-%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="model-header"><td colspan="13">LLaVA-v1.5-7B</td></tr>
+          <tr><td>Original</td><td>7.0B</td><td>0%</td><td>35.10</td><td>68.67</td><td>26.70</td><td>54.80</td><td>363.21</td><td>1511.33</td><td>86.99</td><td>28.10</td><td>61.98</td><td class="best">100.00%</td></tr>
+          <tr><td>Widthwise</td><td>6.0B</td><td>15%</td><td>32.40</td><td>63.21</td><td>23.10</td><td>45.40</td><td>268.93</td><td>1432.47</td><td>86.57</td><td>23.90</td><td>59.34</td><td class="best">90.87%</td></tr>
+          <tr><td>Widthwise</td><td>5.0B</td><td>30%</td><td>31.00</td><td>54.29</td><td>15.80</td><td>37.80</td><td>253.21</td><td>1174.93</td><td>86.29</td><td>17.90</td><td>52.59</td><td>79.88%</td></tr>
+          <tr><td>Layerwise</td><td>6.0B</td><td>15%</td><td>32.70</td><td>59.64</td><td>14.80</td><td>32.10</td><td>210.71</td><td>921.88</td><td>78.69</td><td>16.50</td><td>42.18</td><td>72.22%</td></tr>
+          <tr><td>Layerwise</td><td>5.0B</td><td>30%</td><td>31.80</td><td>55.23</td><td>13.50</td><td>29.70</td><td>202.14</td><td>701.83</td><td>86.38</td><td>14.60</td><td>42.77</td><td>69.18%</td></tr>
+
+          <tr class="model-header"><td colspan="13">Mini-InternVL-Chat-4B</td></tr>
+          <tr><td>Original</td><td>4.1B</td><td>0%</td><td>43.20</td><td>93.30</td><td>53.70</td><td>76.90</td><td>547.50</td><td>1596.71</td><td>88.00</td><td>87.70</td><td>62.57</td><td class="best">100.00%</td></tr>
+          <tr><td>Widthwise</td><td>3.5B</td><td>15%</td><td>42.70</td><td>92.96</td><td>38.80</td><td>72.40</td><td>527.86</td><td>1594.37</td><td>88.09</td><td>80.20</td><td>58.43</td><td class="best">94.74%</td></tr>
+          <tr><td>Widthwise</td><td>3.0B</td><td>30%</td><td>33.30</td><td>68.82</td><td>28.80</td><td>44.50</td><td>397.14</td><td>1300.60</td><td>85.20</td><td>64.20</td><td>42.39</td><td>73.72%</td></tr>
+          <tr><td>Layerwise</td><td>3.5B</td><td>15%</td><td>43.60</td><td>93.12</td><td>22.50</td><td>70.20</td><td>510.10</td><td>1588.30</td><td>88.15</td><td>78.30</td><td>52.35</td><td>90.48%</td></tr>
+          <tr><td>Layerwise</td><td>3.0B</td><td>30%</td><td>28.30</td><td>62.82</td><td>18.40</td><td>24.50</td><td>220.90</td><td>1200.60</td><td>73.20</td><td>53.10</td><td>27.39</td><td>57.42%</td></tr>
+
+          <tr class="model-header"><td colspan="13">Bunny-v1.0-3B</td></tr>
+          <tr><td>Original</td><td>3.2B</td><td>0%</td><td>34.10</td><td>70.70</td><td>25.80</td><td>60.49</td><td>289.30</td><td>1487.71</td><td>87.82</td><td>22.80</td><td>54.72</td><td class="best">100.00%</td></tr>
+          <tr><td>Widthwise</td><td>2.8B</td><td>15%</td><td>30.90</td><td>65.64</td><td>23.40</td><td>55.73</td><td>242.50</td><td>1207.85</td><td>87.94</td><td>18.20</td><td>51.83</td><td class="best">90.87%</td></tr>
+          <tr><td>Widthwise</td><td>2.4B</td><td>30%</td><td>28.40</td><td>55.73</td><td>14.20</td><td>43.97</td><td>199.64</td><td>807.95</td><td>87.13</td><td>12.50</td><td>45.65</td><td>75.58%</td></tr>
+          <tr><td>Layerwise</td><td>2.8B</td><td>15%</td><td>33.80</td><td>69.66</td><td>18.80</td><td>52.73</td><td>271.43</td><td>1456.41</td><td>87.91</td><td>15.80</td><td>29.42</td><td>88.84%</td></tr>
+          <tr><td>Layerwise</td><td>2.4B</td><td>30%</td><td>29.00</td><td>28.76</td><td>10.10</td><td>34.97</td><td>272.86</td><td>1273.34</td><td>86.50</td><td>10.50</td><td>24.77</td><td>69.03%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table 5: Best compressed models -->
+    <h3 class="section-subtitle">Best Compressed Model Performance</h3>
+    <p class="table-caption">
+      Performance following our best practices: layerwise pruning for ratios &lt;45%, widthwise for &ge;45%, with SFT + L2 hidden-state distillation for recovery.
+    </p>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th><th>Ratio</th><th>MMMU</th><th>SQA</th><th>MathV</th><th>AI2D</th><th>MME-C</th><th>MME-P</th><th>POPE</th><th>DocVQA</th><th>GQA</th><th>AVG-%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="model-header"><td colspan="12">LLaVA-v1.5-7B</td></tr>
+          <tr><td>Original</td><td>0%</td><td>35.10</td><td>68.67</td><td>26.70</td><td>54.80</td><td>363.21</td><td>1511.33</td><td>86.99</td><td>28.10</td><td>61.98</td><td class="best">100.00%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>15%</td><td>36.40</td><td>68.42</td><td>25.50</td><td>53.70</td><td>337.86</td><td>1442.35</td><td>86.94</td><td>27.60</td><td>61.20</td><td class="best">98.10%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>30%</td><td>36.00</td><td>68.82</td><td>23.40</td><td>50.50</td><td>318.57</td><td>1496.60</td><td>85.98</td><td>26.10</td><td>60.34</td><td class="best">96.38%</td></tr>
+          <tr><td>Width+FT+L2</td><td>45%</td><td>30.80</td><td>52.92</td><td>20.20</td><td>48.40</td><td>215.00</td><td>1191.17</td><td>85.74</td><td>23.70</td><td>57.74</td><td>83.99%</td></tr>
+          <tr><td>Width+FT+L2</td><td>60%</td><td>27.70</td><td>46.26</td><td>18.00</td><td>46.30</td><td>211.79</td><td>1085.97</td><td>84.06</td><td>22.20</td><td>52.32</td><td>78.13%</td></tr>
+
+          <tr class="model-header"><td colspan="12">Mini-InternVL-Chat-4B</td></tr>
+          <tr><td>Original</td><td>0%</td><td>43.20</td><td>93.30</td><td>53.70</td><td>76.90</td><td>547.50</td><td>1596.71</td><td>88.00</td><td>87.70</td><td>62.50</td><td class="best">100.00%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>15%</td><td>42.80</td><td>92.47</td><td>53.22</td><td>76.21</td><td>542.61</td><td>1582.42</td><td>87.21</td><td>86.92</td><td>62.01</td><td class="best">99.12%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>30%</td><td>41.45</td><td>89.53</td><td>51.53</td><td>73.79</td><td>525.36</td><td>1532.14</td><td>84.44</td><td>84.15</td><td>60.04</td><td>95.96%</td></tr>
+          <tr><td>Width+FT+L2</td><td>45%</td><td>37.24</td><td>80.43</td><td>46.29</td><td>66.30</td><td>472.00</td><td>1376.53</td><td>75.87</td><td>75.61</td><td>53.94</td><td>86.22%</td></tr>
+          <tr><td>Width+FT+L2</td><td>60%</td><td>34.29</td><td>74.06</td><td>42.63</td><td>61.05</td><td>434.62</td><td>1267.52</td><td>69.86</td><td>69.62</td><td>49.67</td><td>79.39%</td></tr>
+
+          <tr class="model-header"><td colspan="12">Bunny-v1.0-3B</td></tr>
+          <tr><td>Original</td><td>0%</td><td>34.10</td><td>70.72</td><td>25.80</td><td>60.49</td><td>289.31</td><td>1487.71</td><td>87.82</td><td>22.80</td><td>54.72</td><td class="best">100.00%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>15%</td><td>33.00</td><td>70.00</td><td>24.20</td><td>59.80</td><td>304.29</td><td>1457.06</td><td>87.97</td><td>21.80</td><td>54.56</td><td class="best">98.98%</td></tr>
+          <tr><td>Layer+FT+L2</td><td>30%</td><td>32.35</td><td>68.12</td><td>22.60</td><td>57.20</td><td>252.51</td><td>1349.91</td><td>87.53</td><td>20.80</td><td>53.08</td><td>94.37%</td></tr>
+          <tr><td>Width+FT+L2</td><td>45%</td><td>29.15</td><td>63.06</td><td>21.00</td><td>55.50</td><td>244.64</td><td>1281.66</td><td>87.09</td><td>19.80</td><td>52.31</td><td>90.48%</td></tr>
+          <tr><td>Width+FT+L2</td><td>60%</td><td>28.10</td><td>53.20</td><td>19.40</td><td>53.90</td><td>216.07</td><td>1115.33</td><td>86.73</td><td>18.80</td><td>48.72</td><td>83.86%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table 6: Qualitative -->
+    <h3 class="section-subtitle">Qualitative Analysis</h3>
+    <p class="table-caption">
+      Compressed LLaVA-v1.5-7B outputs at varying compression ratios. <strong>Bold</strong> text indicates correctly identified details; <em>italics</em> denote hallucinations or errors.
+    </p>
+    <div class="table-wrapper">
+      <table class="qual-table">
+        <thead>
+          <tr>
+            <th style="width:60px;">Ratio</th>
+            <th>Q1: What is funny in the image? <img src="static/images/monalisa.png" class="qual-img" alt="Dog in Mona Lisa pose" style="display:block;margin-top:6px;"></th>
+            <th>Q2: How many uncut fruits are in the image? <img src="static/images/mangosteen.png" class="qual-img" alt="Mangosteen fruits" style="display:block;margin-top:6px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>0%</strong></td>
+            <td>The image is funny because it is a parody of the famous Mona Lisa painting, but with a <strong>dog's head and paws</strong> instead of a woman's. The dog is wearing the same <strong>dark veil and dress</strong> as seen in the original artwork.</td>
+            <td>There are <strong>three uncut mangosteens</strong> in the image. They are positioned in the background and to the left, showing their <strong>dark purple skin and green stems</strong>. Two other fruits have been cut open in the foreground.</td>
+          </tr>
+          <tr>
+            <td><strong>15%</strong></td>
+            <td>The image is funny because it features a <strong>dog wearing a Renaissance-style dress and a bandana</strong>, posing as if it&rsquo;s posing for a painting. This is humorous because it is a playful representation of a dog.</td>
+            <td>There are <strong>three uncut fruits</strong> in the picture. These are <strong>mangosteens with their green caps</strong> still attached. There are also three other fruits that have been sliced open.</td>
+          </tr>
+          <tr>
+            <td><strong>30%</strong></td>
+            <td>The image is funny because it features a <strong>dog dressed up in a human-like attire</strong>, wearing a <em>long black dress and a hat</em>. This unusual scene is not something you would typically see in real life.</td>
+            <td>There are <strong>three</strong> uncut <em>purple onions</em> in the background. The image also shows some fruit that has been cut in half on a wooden surface.</td>
+          </tr>
+          <tr>
+            <td><strong>45%</strong></td>
+            <td>The image is funny because it features a <strong>dog dressed in a human-like dress</strong>, posing as if it were a person. The dog&rsquo;s pose creates a sense of humor and playfulness.</td>
+            <td>There are <em>two</em> uncut fruits. They look like <em>pomegranates or some kind of tropical fruit</em>.</td>
+          </tr>
+          <tr>
+            <td><strong>60%</strong></td>
+            <td>The image is funny because <em>there is a woman sitting in a chair. She is wearing a black dress and has long hair. It is funny because she has a serious expression.</em></td>
+            <td>There is <em>one large purple cabbage</em> in the center. It is <em>sitting on a wooden table next to some garlic</em>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════════ 4. Key Insights ═══════════════════ -->
+<section id="insights">
+  <div class="container">
+    <h2 class="section-title">Key Insights</h2>
+
+    <div class="highlights-grid">
+      <div class="highlight-card">
+        <div class="highlight-icon blue">1</div>
+        <div class="highlight-content">
+          <h3>Widthwise Pruning without Recovery</h3>
+          <p>Widthwise pruning retains up to 95% of baseline performance at 15% compression <em>without any recovery training</em>, and disproportionately preserves complex reasoning capabilities compared to layerwise pruning.</p>
+        </div>
+      </div>
+      <div class="highlight-card">
+        <div class="highlight-icon purple">2</div>
+        <div class="highlight-content">
+          <h3>Pruning Strategy Selection</h3>
+          <p>With recovery training, layerwise pruning excels at moderate compression (&le;30%), while widthwise pruning delivers better performance at higher compression ratios (&ge;45%).</p>
+        </div>
+      </div>
+      <div class="highlight-card">
+        <div class="highlight-icon green">3</div>
+        <div class="highlight-content">
+          <h3>Degradation Dynamics</h3>
+          <p>Low compression primarily damages multimodal alignment rather than language capabilities. Projector-only finetuning is sufficient at &le;15% compression; higher ratios degrade both and require full LLM finetuning.</p>
+        </div>
+      </div>
+      <div class="highlight-card">
+        <div class="highlight-icon amber">4</div>
+        <div class="highlight-content">
+          <h3>Optimal Recovery: SFT + L2 Distillation</h3>
+          <p>Combining supervised finetuning with hidden-state distillation (L2 loss) consistently achieves the best performance recovery across all compression ratios and all three model families.</p>
+        </div>
+      </div>
+      <div class="highlight-card">
+        <div class="highlight-icon blue">5</div>
+        <div class="highlight-content">
+          <h3>Data-Efficient Recovery</h3>
+          <p>Only 5% of the original training data is needed for effective recovery at compression ratios below 50%, retaining over 90% of full-data performance.</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-subtitle" style="text-align:center; margin-top:2.5rem;">Practical Decision Guide</h3>
+    <p style="color: var(--color-text-light); text-align: center; margin-bottom: 1.5rem; max-width: 860px; margin-left: auto; margin-right: auto;">
+      Based on our empirical findings, we provide actionable recommendations for compressing LVLMs:
+    </p>
+
+    <div class="flowchart">
+      <div class="flow-step step-blue">
+        <div>
+          <div class="flow-condition">Extremely low-resource (no recovery budget)</div>
+          <div class="flow-action">Use <strong>widthwise pruning only</strong> (no finetuning needed). Retains 91&ndash;95% performance at 15% compression across all three models.</div>
+        </div>
+      </div>
+      <div class="flow-step step-green">
+        <div>
+          <div class="flow-condition">Moderate compression (&le;30%) with recovery budget</div>
+          <div class="flow-action">Use <strong>layerwise pruning</strong> + projector finetuning (for &le;15%) or full SFT + L2 distillation (for 15&ndash;30%). Retains &gt;94% performance.</div>
+        </div>
+      </div>
+      <div class="flow-step step-purple">
+        <div>
+          <div class="flow-condition">High compression (&ge;45%) with recovery budget</div>
+          <div class="flow-action">Use <strong>widthwise pruning</strong> + SFT + L2 hidden-state distillation. Use full dataset if compression &ge;50%.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════════ Citation ═══════════════════ -->
+<section id="citation">
+  <div class="container">
+    <h2 class="section-title">BibTeX</h2>
+    <p style="color: var(--color-text-lighter); text-align: center; margin-bottom: 0;">
+      If you find this work useful, please cite our paper:
+    </p>
+    <div class="citation-block" id="bibtex"><button class="copy-btn" onclick="copyBibtex()">Copy</button>@article{huang2026structural,
+  title={Structural Pruning of Large Vision Language Models: A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency},
+  author={Huang, Yiran and Thede, Lukas and Mancini, Massimiliano and Xu, Wenjia and Akata, Zeynep},
+  journal={arXiv preprint arXiv:2604.24380},
+  year={2026}
+}</div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════════ Acknowledgements ═══════════════════ -->
+<section id="acknowledgements">
+  <div class="container">
+    <h2 class="section-title">Acknowledgements</h2>
+    <p style="color: var(--color-text-lighter); text-align: center; margin-bottom: 0.75rem;">
+      This codebase builds on the following open-source projects:
+    </p>
+    <div class="ack-list">
+      <a href="https://github.com/horseee/LLM-Pruner" class="ack-link" target="_blank">LLM-Pruner</a>
+      <a href="https://github.com/sramshetty/ShortGPT" class="ack-link" target="_blank">ShortGPT</a>
+      <a href="https://github.com/haotian-liu/LLaVA" class="ack-link" target="_blank">LLaVA</a>
+      <a href="https://github.com/BAAI-DCAI/Bunny" class="ack-link" target="_blank">Bunny</a>
+      <a href="https://github.com/OpenGVLab/InternVL" class="ack-link" target="_blank">InternVL</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ Footer ═══════════════════ -->
+<footer>
+  <div class="container">
+    <p>
+      <a href="https://github.com/YiranHuangIrene/VLMCompression" target="_blank">GitHub</a>
+      &middot; <a href="https://arxiv.org/abs/2604.24380" target="_blank">arXiv</a>
+    </p>
+    <p style="margin-top: 0.5rem;">This website template is based on the <a href="https://nerfies.github.io/" target="_blank">Nerfies</a> project page.</p>
+  </div>
+</footer>
+
+<!-- ═══════════════════ Scripts ═══════════════════ -->
+<script>
+function copyBibtex() {
+  var bibtex = document.getElementById('bibtex').innerText
+    .replace('Copy', '').trim();
+  navigator.clipboard.writeText(bibtex).then(function() {
+    var btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+</script>
+
+</body>
+</html>

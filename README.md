@@ -1,9 +1,10 @@
-# MLLM-Compression (IJCV 2026 & GCPR 2025 Oral)
+# Structural Pruning of Large Vision Language Models: A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency (IJCV 2026 & GCPR 2025 Oral)
 
-Official implementation of the paper: **Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study**, accepted at IJCV 2026 (Extended Version) and GCPR 2025 (Oral Presentation).
+Official implementation of the paper: **Structural Pruning of Large Vision Language Models: A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency**, accepted at IJCV 2026 (Extended Version) and GCPR 2025 (Oral Presentation).
 
-[Authors:Yiran Huang, Lukas Thede, Massimiliano Mancini, Wenjia Xu, Zeynep Akata.]
-[arXiv:2507.20749](https://arxiv.org/abs/2507.20749)
+[Authors: Yiran Huang, Lukas Thede, Massimiliano Mancini, Wenjia Xu, Zeynep Akata.]
+
+[[Project Page](https://yiranhuangirene.github.io/VLMCompression/)] [[arXiv (IJCV)](https://arxiv.org/abs/2604.24380)] [[arXiv (GCPR)](https://arxiv.org/abs/2507.20749)]
 
 We study structural pruning of the **language backbone** of multimodal LLMs and how to recover the lost performance cheaply:
 
@@ -189,6 +190,13 @@ This repository is released under the Apache License 2.0 (see `LICENSE`). It bun
 ## Citation
 
 ```bibtex
+@article{huang2026structural,
+  title={Structural Pruning of Large Vision Language Models: A Comprehensive Study on Pruning Dynamics, Recovery, and Data Efficiency},
+  author={Huang, Yiran and Thede, Lukas and Mancini, Massimiliano and Xu, Wenjia and Akata, Zeynep},
+  journal={International Journal of Computer Vision (IJCV)},
+  year={2026}
+}
+
 @inproceedings{huang2025investigating,
   title={Investigating Structural Pruning and Recovery Techniques for Compressing Multimodal Large Language Models: An Empirical Study},
   author={Huang, Yiran and Thede, Lukas and Mancini, Massimiliano and Xu, Wenjia and Akata, Zeynep},
